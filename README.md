@@ -1,5 +1,5 @@
 # Encrypted Data Reduction: Removing Redundancy from Encrypted Data in Outsourced Storage (EDRStore)
-
+test
 ## Introduction
 
 EDRStore is an outsourced storage system that supports deduplication, delta compression, and local compression for storage savings, and further combines them with encryption for data confidentiality. This repo contains the implementation of EDRStore prototype, baseline approaches, and scripts for trace collecting.
