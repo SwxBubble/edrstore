@@ -20,6 +20,8 @@
 #include "client_var.h"
 #include "storage_core.h"
 
+#include "../reduction/cdfe_cloud_policy.h"
+
 class DataWriterThd {
     private:
         string my_name_ = "DataWriterThd";
@@ -32,6 +34,9 @@ class DataWriterThd {
 
         // for similar detection
         SimilarPolicy* similar_policy_;
+
+        // phase-1: CDFE + Jaccard cloud-side resemblance detection
+        CDFECloudPolicy* cdfe_policy_;
 
         // for fp to chunk addr index
         AbsDatabase* fp_2_addr_db_;
@@ -77,6 +82,11 @@ class DataWriterThd {
         uint64_t _total_similar_chunk_num = 0;
         uint64_t _total_similar_data_size = 0;
         uint64_t _total_delta_size = 0;
+
+        // phase-1 CDFE stats
+        uint64_t _total_delta_attempt_num = 0;
+        uint64_t _total_delta_success_num = 0;
+        uint64_t _total_delta_fallback_num = 0;
 
 #ifdef EDR_BREAKDOWN
         struct timeval _comp_delta_stime;

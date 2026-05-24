@@ -25,6 +25,9 @@ DataWriterThd::DataWriterThd(AbsDatabase* fp_2_addr_db,
     storage_core_ = storage_core;
     delta_comp_ = new DeltaComp();
     similar_policy_ = new SimilarPolicy();
+
+    // phase-1: use CDFE + Jaccard for cloud-side base search
+    cdfe_policy_ = new CDFECloudPolicy();
 }
 
 /**
@@ -32,8 +35,21 @@ DataWriterThd::DataWriterThd(AbsDatabase* fp_2_addr_db,
  * 
  */
 DataWriterThd::~DataWriterThd() {
+
+    fprintf(stderr, "\n========DataWriterThd CDFE Phase-1 Stats========\n");
+    fprintf(stderr, "total similar chunk num: %lu\n", _total_similar_chunk_num);
+    fprintf(stderr, "total delta attempt num: %lu\n", _total_delta_attempt_num);
+    fprintf(stderr, "total delta success num: %lu\n", _total_delta_success_num);
+    fprintf(stderr, "total delta fallback num: %lu\n", _total_delta_fallback_num);
+    fprintf(stderr, "total delta size: %lu\n", _total_delta_size);
+    fprintf(stderr, "=================================================\n");
+
+
+
     delete delta_comp_;
     delete similar_policy_;
+
+    delete cdfe_policy_;
 }
 
 /**
@@ -71,33 +87,63 @@ void DataWriterThd::Run(ClientVar* cur_client) {
                     this->ProcCacheDeltaChunk(&tmp_data, cur_client);
                     break;
                 }
+                // case UNIQUE_CHUNK: {
+                //     similar_policy_->FindBaseChunk(feature_2_fp_db_,
+                //         &tmp_data.info);
+                //     switch (tmp_data.info.stat) {
+                //         case SIMILAR_CHUNK: {
+                //             _total_similar_chunk_num++;
+                //             _total_similar_data_size += tmp_data.info.size;
+                //             this->ProcSimilarChunk(&tmp_data, cur_client);
+                //             break;
+                //         }
+                //         case NON_SIMILAR_CHUNK: {
+                //             this->ProcNonSimilarChunk(&tmp_data, cur_client);
+                //             similar_policy_->UpdateFeatureIndex(
+                //                 feature_2_fp_db_,
+                //                 tmp_data.info.features,
+                //                 tmp_data.info.fp
+                //             );
+                //             break;
+                //         }
+                //         default: {
+                //             tool::Logging(my_name_.c_str(),
+                //                 "wrong unique chunk type.\n");
+                //             exit(EXIT_FAILURE);
+                //         }
+                //     }
+                //     break;
+                // }
+
+
                 case UNIQUE_CHUNK: {
-                    similar_policy_->FindBaseChunk(feature_2_fp_db_,
-                        &tmp_data.info);
-                    switch (tmp_data.info.stat) {
-                        case SIMILAR_CHUNK: {
-                            _total_similar_chunk_num++;
-                            _total_similar_data_size += tmp_data.info.size;
-                            this->ProcSimilarChunk(&tmp_data, cur_client);
-                            break;
-                        }
-                        case NON_SIMILAR_CHUNK: {
-                            this->ProcNonSimilarChunk(&tmp_data, cur_client);
-                            similar_policy_->UpdateFeatureIndex(
-                                feature_2_fp_db_,
-                                tmp_data.info.features,
-                                tmp_data.info.fp
-                            );
-                            break;
-                        }
-                        default: {
-                            tool::Logging(my_name_.c_str(),
-                                "wrong unique chunk type.\n");
-                            exit(EXIT_FAILURE);
-                        }
+                // phase-1: use CDFE + Jaccard instead of original SimilarPolicy
+                cdfe_policy_->FindBaseChunk(&tmp_data.info);
+
+                switch (tmp_data.info.stat) {
+                    case SIMILAR_CHUNK: {
+                        _total_similar_chunk_num++;
+                        _total_similar_data_size += tmp_data.info.size;
+
+                        this->ProcSimilarChunk(&tmp_data, cur_client);
+                        break;
                     }
-                    break;
+                    case NON_SIMILAR_CHUNK: {
+                        this->ProcNonSimilarChunk(&tmp_data, cur_client);
+
+                        // Insert this base chunk into CDFE index
+                        cdfe_policy_->UpdateIndex(&tmp_data.info);
+                        break;
+                    }
+                    default: {
+                        tool::Logging(my_name_.c_str(),
+                            "wrong unique chunk type.\n");
+                        exit(EXIT_FAILURE);
+                    }
                 }
+                break;
+            }
+
                 default: {
                     tool::Logging(my_name_.c_str(),
                         "wrong chunk type after cache.\n");
@@ -134,6 +180,46 @@ void DataWriterThd::Run(ClientVar* cur_client) {
  * @param input_chunk input chunk
  * @param cur_client current client
  */
+// void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
+//     ClientVar* cur_client) {
+//     uint8_t base_chunk[ENC_MAX_CHUNK_SIZE];
+//     uint32_t base_chunk_size = 0;
+//     uint8_t delta_chunk[ENC_MAX_CHUNK_SIZE];
+//     uint32_t delta_chunk_size = 0;
+
+//     base_chunk_size = this->FetchBaseChunk(input_chunk->info.addr.base_fp,
+//         base_chunk, cur_client);
+
+//     if(base_chunk_size == 0){
+//         // avoid delta, directly write
+//         storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
+//         input_chunk->info.size, cur_client);
+//     }
+
+// #ifdef EDR_BREAKDOWN
+//     gettimeofday(&_comp_delta_stime, NULL);
+// #endif
+
+//     delta_chunk_size = delta_comp_->DeltaEncode(base_chunk, base_chunk_size,
+//         input_chunk->data, input_chunk->info.size, delta_chunk);
+
+//     storage_core_->WriteChunk(&input_chunk->info.addr, delta_chunk,
+//         delta_chunk_size, cur_client);
+//     input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
+
+//     // update stat
+//     _total_delta_size += delta_chunk_size;
+
+// #ifdef EDR_BREAKDOWN
+//     gettimeofday(&_comp_delta_etime, NULL);
+//     _total_comp_delta_time += tool::GetTimeDiff(_comp_delta_stime,
+//         _comp_delta_etime);
+//     _total_comp_delta_data_size += input_chunk->info.size;
+// #endif
+
+//     return ;
+// }
+
 void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
     uint8_t base_chunk[ENC_MAX_CHUNK_SIZE];
@@ -141,13 +227,21 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     uint8_t delta_chunk[ENC_MAX_CHUNK_SIZE];
     uint32_t delta_chunk_size = 0;
 
+    _total_delta_attempt_num++;
+
     base_chunk_size = this->FetchBaseChunk(input_chunk->info.addr.base_fp,
         base_chunk, cur_client);
 
-    if(base_chunk_size == 0){
-        // avoid delta, directly write
+    if (base_chunk_size == 0) {
+        // avoid delta, directly write as base
         storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-        input_chunk->info.size, cur_client);
+            input_chunk->info.size, cur_client);
+        input_chunk->info.addr.stat = COMP_BASE_CHUNK;
+
+        // fallback chunk should become a new base
+        cdfe_policy_->UpdateIndex(&input_chunk->info);
+        _total_delta_fallback_num++;
+        return;
     }
 
 #ifdef EDR_BREAKDOWN
@@ -157,13 +251,6 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     delta_chunk_size = delta_comp_->DeltaEncode(base_chunk, base_chunk_size,
         input_chunk->data, input_chunk->info.size, delta_chunk);
 
-    storage_core_->WriteChunk(&input_chunk->info.addr, delta_chunk,
-        delta_chunk_size, cur_client);
-    input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
-
-    // update stat
-    _total_delta_size += delta_chunk_size;
-
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_etime, NULL);
     _total_comp_delta_time += tool::GetTimeDiff(_comp_delta_stime,
@@ -171,8 +258,33 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     _total_comp_delta_data_size += input_chunk->info.size;
 #endif
 
-    return ;
+    // phase-1: delta gain filter
+    // 64 bytes is a conservative metadata margin; you can tune it later
+    if (delta_chunk_size > 0 &&
+        delta_chunk_size + 64 < input_chunk->info.size) {
+
+        storage_core_->WriteChunk(&input_chunk->info.addr, delta_chunk,
+            delta_chunk_size, cur_client);
+        input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
+
+        _total_delta_size += delta_chunk_size;
+        _total_delta_success_num++;
+    } else {
+        // delta is not beneficial, store as base
+        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
+            input_chunk->info.size, cur_client);
+        input_chunk->info.addr.stat = COMP_BASE_CHUNK;
+
+        // since it is stored as base, insert it into CDFE index
+        cdfe_policy_->UpdateIndex(&input_chunk->info);
+        _total_delta_fallback_num++;
+    }
+
+    return;
 }
+
+
+
 
 /**
  * @brief process a non-similar chunk 

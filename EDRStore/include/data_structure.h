@@ -15,6 +15,16 @@
 #include "const_var.h"
 #include <bits/stdc++.h>
 
+
+#define MAX_CDFE_FEATURES 64
+
+typedef struct {
+    uint64_t value;
+    uint16_t subblock_rank;
+    float norm_pos;
+} CDFELocalFeature_t;
+
+
 typedef struct {
     uint32_t size;
     uint8_t data[MAX_CHUNK_SIZE];
@@ -115,14 +125,30 @@ typedef struct {
     uint8_t* data_buf;
 } SendMsgBuffer_t;
 
+// typedef struct {
+//     uint8_t fp[CHUNK_HASH_SIZE]; // chunk fp
+//     // uint8_t compressed_fp[CHUNK_HASH_SIZE];
+//     uint64_t features[SUPER_FEATURE_PER_CHUNK];
+//     KeyForChunkHashDB_t addr;
+//     uint32_t size;
+//     uint8_t stat;
+// } ChunkInfo_t;
+
 typedef struct {
     uint8_t fp[CHUNK_HASH_SIZE]; // chunk fp
-    // uint8_t compressed_fp[CHUNK_HASH_SIZE];
+
+    // 原 EDRStore 的 super-feature，阶段一先保留，避免影响其他逻辑
     uint64_t features[SUPER_FEATURE_PER_CHUNK];
+
+    // 新增：Cloud 侧 CDFE 子块特征
+    uint32_t cdfe_feature_num;
+    CDFELocalFeature_t cdfe_features[MAX_CDFE_FEATURES];
+
     KeyForChunkHashDB_t addr;
     uint32_t size;
     uint8_t stat;
 } ChunkInfo_t;
+
 
 typedef struct {
     ChunkInfo_t info;

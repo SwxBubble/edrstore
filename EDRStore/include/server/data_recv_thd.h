@@ -19,6 +19,9 @@
 #include "../chunker/finesse_util.h"
 #include "client_var.h"
 
+#include "../reduction/cdfe_feature.h"
+
+
 extern Configure config;
 
 class DataRecvThd{
@@ -39,6 +42,9 @@ class DataRecvThd{
 
         // for feature computation
         FinesseUtil* finesse_util_;
+
+        // for CDFE feature computation, used in phase-1 cloud-side test
+        CDFEFeatureExtractor* cdfe_extractor_;
 
         // for fingerprinting
         CryptoUtil* crypto_util_;
@@ -72,6 +78,15 @@ class DataRecvThd{
          */
         void ProcessEvictFeature(ClientVar* cur_client);
 
+        /**
+         * @brief extract CDFE feature and record time
+         *
+         * @param data chunk data
+         * @param size chunk size
+         * @param info chunk info
+         */
+        void ExtractCDFEWithTimer(uint8_t* data, uint32_t size, ChunkInfo_t* info);
+
     public:
         uint64_t _chunk_batch_num = 0;
         uint64_t _total_recv_chunk_num = 0;
@@ -82,6 +97,14 @@ class DataRecvThd{
         uint64_t _total_logical_chunk_num = 0;
         uint64_t _total_unique_data_size = 0;
         uint64_t _total_unique_chunk_num = 0;
+
+        // phase-1 CDFE feature extraction stats on StorageServer
+        struct timeval _cdfe_feature_stime;
+        struct timeval _cdfe_feature_etime;
+        double _total_cdfe_feature_time = 0;
+        uint64_t _total_cdfe_feature_data_size = 0;
+        uint64_t _total_cdfe_feature_chunk_num = 0;
+        uint64_t _total_cdfe_feature_num = 0;
     
 #ifdef EDR_BREAKDOWN
         struct timeval _cipher_fp_stime;

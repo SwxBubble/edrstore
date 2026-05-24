@@ -26,6 +26,10 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
     send_recipe_batch_size_ = config.GetSendRecipeBatchSize();
     finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
         FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+
+    // phase-1: use CDFE feature on cloud-side ciphertext chunk
+    cdfe_extractor_ = new CDFEFeatureExtractor();
+
     crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
 }
 
@@ -33,11 +37,74 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
  * @brief Destroy the DataRecvThd object
  * 
  */
+// DataRecvThd::~DataRecvThd() {
+//     delete dedup_util_;
+//     delete finesse_util_;
+//     delete crypto_util_;
+
+//     delete cdfe_extractor_;
+// }
+
 DataRecvThd::~DataRecvThd() {
+    fprintf(stderr, "\n========DataRecvThd CDFE Feature Stats========\n");
+    fprintf(stderr, "total cdfe feature chunk num: %lu\n",
+        _total_cdfe_feature_chunk_num);
+    fprintf(stderr, "total cdfe feature data size: %lu\n",
+        _total_cdfe_feature_data_size);
+    fprintf(stderr, "total cdfe feature num: %lu\n",
+        _total_cdfe_feature_num);
+    fprintf(stderr, "total cdfe feature time: %.6lf s\n",
+        _total_cdfe_feature_time);
+
+    if (_total_cdfe_feature_chunk_num > 0) {
+        fprintf(stderr, "avg cdfe features per chunk: %.4lf\n",
+            (double)_total_cdfe_feature_num /
+            (double)_total_cdfe_feature_chunk_num);
+    }
+
+    if (_total_cdfe_feature_time > 0) {
+        fprintf(stderr, "cdfe feature throughput: %.4lf MiB/s\n",
+            (_total_cdfe_feature_data_size / 1024.0 / 1024.0) /
+            _total_cdfe_feature_time);
+    }
+
+    fprintf(stderr, "==============================================\n");
+
     delete dedup_util_;
     delete finesse_util_;
+    delete cdfe_extractor_;
     delete crypto_util_;
 }
+
+
+
+void DataRecvThd::ExtractCDFEWithTimer(uint8_t* data,
+    uint32_t size, ChunkInfo_t* info) {
+    if (data == nullptr || info == nullptr || size == 0) {
+        if (info != nullptr) {
+            info->cdfe_feature_num = 0;
+        }
+        return;
+    }
+
+    gettimeofday(&_cdfe_feature_stime, NULL);
+
+    cdfe_extractor_->Extract(data, size, info);
+
+    gettimeofday(&_cdfe_feature_etime, NULL);
+
+    _total_cdfe_feature_time += tool::GetTimeDiff(
+        _cdfe_feature_stime,
+        _cdfe_feature_etime
+    );
+
+    _total_cdfe_feature_data_size += size;
+    _total_cdfe_feature_chunk_num++;
+    _total_cdfe_feature_num += info->cdfe_feature_num;
+}
+
+
+
 
 /**
  * @brief the main process
@@ -162,6 +229,19 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
 
+                // phase-1: recompute CDFE feature on cloud side
+                // cdfe_extractor_->Extract(
+                //     tmp_chunk.data,
+                //     tmp_chunk.info.size,
+                //     &tmp_chunk.info
+                // );
+
+                this->ExtractCDFEWithTimer(
+                    tmp_chunk.data,
+                    tmp_chunk.info.size,
+                    &tmp_chunk.info
+                );
+
                 // mark this chunk is for cache insertion
                 tmp_chunk.info.stat = CACHE_INSERT_CHUNK;
 
@@ -262,6 +342,18 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 // copy the cipher feature from the client
                 memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+
+                // phase-1: recompute CDFE feature on cloud side
+                // cdfe_extractor_->Extract(
+                //     tmp_chunk.data,
+                //     tmp_chunk.info.size,
+                //     &tmp_chunk.info
+                // );
+                this->ExtractCDFEWithTimer(
+                    tmp_chunk.data,
+                    tmp_chunk.info.size,
+                    &tmp_chunk.info
+                );
                 output_MQ->Push(tmp_chunk);
 
                 this->ProcessRecipe(cur_client, tmp_chunk.info.fp);
@@ -320,6 +412,17 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                     finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
                         tmp_chunk.data, tmp_chunk.info.size,
                         tmp_chunk.info.features);
+                    // phase-1: compute CDFE features on cloud-side ciphertext chunk
+                    // cdfe_extractor_->Extract(
+                    //     tmp_chunk.data,
+                    //     tmp_chunk.info.size,
+                    //     &tmp_chunk.info
+                    // );
+                    this->ExtractCDFEWithTimer(
+                        tmp_chunk.data,
+                        tmp_chunk.info.size,
+                        &tmp_chunk.info
+                    );
 
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);
