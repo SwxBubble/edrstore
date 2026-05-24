@@ -20,8 +20,6 @@
 
 typedef struct {
     uint64_t value;
-    uint16_t subblock_rank;
-    float norm_pos;
 } CDFELocalFeature_t;
 
 

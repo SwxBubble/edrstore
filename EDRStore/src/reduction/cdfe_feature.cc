@@ -188,15 +188,7 @@ void CDFEFeatureExtractor::Extract(
 
         uint64_t one_feature = ExtractOneLocalFeature(sbuf, slen);
 
-        float norm_pos = 0.0f;
-        if (len > 0) {
-            norm_pos = static_cast<float>(sb.start + sb.len * 0.5f) /
-                       static_cast<float>(len);
-        }
-
         auto& dst = info->cdfe_features[info->cdfe_feature_num++];
         dst.value = one_feature;
-        dst.subblock_rank = static_cast<uint16_t>(sb.rank);
-        dst.norm_pos = norm_pos;
     }
 }
