@@ -18,6 +18,7 @@
 #include "../message_queue/mq_factory.h"
 #include "two_phase_enc.h"
 #include "cache_meta.h"
+#include "../reduction/cdfe_feature.h"
 
 extern Configure config;
 
@@ -47,6 +48,7 @@ class SenderThd {
 
         // for re-encryption
         TwoPhaseEnc* two_phase_enc_;
+        CDFEFeatureExtractor* cdfe_extractor_;
 
         // cache meta
         CacheMeta* cache_meta_;

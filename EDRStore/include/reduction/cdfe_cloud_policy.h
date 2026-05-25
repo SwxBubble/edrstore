@@ -46,6 +46,9 @@ public:
     uint64_t _total_feature_not_found = 0;
     uint64_t _total_hot_feature_skipped = 0;
 
+    // raw feature count before unordered_set deduplication
+    uint64_t _total_query_raw_feature_num = 0;
+
     CDFECloudPolicy();
     ~CDFECloudPolicy();
 

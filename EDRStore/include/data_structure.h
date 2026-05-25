@@ -22,6 +22,13 @@ typedef struct {
     uint64_t value;
 } CDFELocalFeature_t;
 
+#define MAX_CDFE_WIRE_FEATURES 32
+
+#pragma pack(push, 1)
+typedef struct {
+    uint64_t value;
+} CDFEWireFeature_t;
+#pragma pack(pop)
 
 typedef struct {
     uint32_t size;
@@ -55,6 +62,9 @@ typedef struct {
     uint32_t enc_size;
     uint8_t key[CHUNK_HASH_SIZE];
     uint64_t seed;
+
+    uint32_t cdfe_feature_num;
+    CDFELocalFeature_t cdfe_features[MAX_CDFE_FEATURES];
 } EncFeatureChunk_t;
 
 typedef EncFeatureChunk_t KeyGen2SelectComp_t;
@@ -64,6 +74,9 @@ typedef struct {
     uint8_t type;
     uint64_t cipher_features[SUPER_FEATURE_PER_CHUNK];
     uint8_t compressed_fp[CHUNK_HASH_SIZE];
+
+    uint32_t cdfe_feature_num;
+    CDFEWireFeature_t cdfe_features[MAX_CDFE_WIRE_FEATURES];
 } SendChunkHeader_t;
 
 typedef struct {

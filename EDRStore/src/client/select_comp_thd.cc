@@ -11,6 +11,31 @@
 
 #include "../../include/client/select_comp_thd.h"
 
+#include <algorithm>
+
+static inline void ClearHeaderCDFE(SendChunkHeader_t* header) {
+    if (header == nullptr) {
+        return;
+    }
+
+    header->cdfe_feature_num = 0;
+}
+
+static inline void CopyCDFEToHeader(const EncFeatureChunk_t* input_chunk,
+    SendChunkHeader_t* header) {
+    if (input_chunk == nullptr || header == nullptr) {
+        return;
+    }
+
+    uint32_t n = input_chunk->cdfe_feature_num;
+    n = std::min<uint32_t>(n, MAX_CDFE_WIRE_FEATURES);
+
+    header->cdfe_feature_num = n;
+    for (uint32_t i = 0; i < n; i++) {
+        header->cdfe_features[i].value = input_chunk->cdfe_features[i].value;
+    }
+}
+
 /**
  * @brief Construct a new SelectCompThd object
  * 
@@ -123,6 +148,7 @@ void SelectCompThd::OnlyEncMode(EncFeatureChunk_t* input_chunk,
             output_chunk->send_chunk.header.size = input_chunk->enc_size;
             memcpy(output_chunk->send_chunk.data, input_chunk->enc_data,
                 output_chunk->send_chunk.header.size);
+            ClearHeaderCDFE(&output_chunk->send_chunk.header);
 
             // update the key recipe
             memcpy(output_chunk->key_recipe.key, input_chunk->key,
@@ -134,6 +160,7 @@ void SelectCompThd::OnlyEncMode(EncFeatureChunk_t* input_chunk,
             output_chunk->send_chunk.header.size = sizeof(FileRecipeHead_t);
             memcpy(output_chunk->send_chunk.data, &input_chunk->feature_chunk.chunk.head,
                 sizeof(FileRecipeHead_t));
+            ClearHeaderCDFE(&output_chunk->send_chunk.header);
             break;
         }
         default: {
@@ -159,6 +186,7 @@ void SelectCompThd::EncCompMode(EncFeatureChunk_t* input_chunk,
                 input_chunk->feature_chunk.chunk.raw_chunk.data,
                 input_chunk->feature_chunk.chunk.raw_chunk.size,
                 output_chunk->send_chunk.data, input_chunk->seed);
+            ClearHeaderCDFE(&output_chunk->send_chunk.header);
 
             // update the key recipe
             memcpy(output_chunk->key_recipe.key, input_chunk->key,
@@ -170,6 +198,7 @@ void SelectCompThd::EncCompMode(EncFeatureChunk_t* input_chunk,
             output_chunk->send_chunk.header.size = sizeof(FileRecipeHead_t);
             memcpy(output_chunk->send_chunk.data, &input_chunk->feature_chunk.chunk.head,
                 sizeof(FileRecipeHead_t));
+            ClearHeaderCDFE(&output_chunk->send_chunk.header);
             break;
         }
         default: {
@@ -222,6 +251,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 memcpy(output_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                CopyCDFEToHeader(input_chunk, &output_chunk->send_chunk.header);
 
                 // perform local compression and generate compressed
                 uint8_t compressed_data[ENC_MAX_CHUNK_SIZE];
@@ -258,6 +288,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 memcpy(cache_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);  
+                CopyCDFEToHeader(input_chunk, &cache_chunk->send_chunk.header);
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_comp_pad_stime, NULL);
@@ -270,6 +301,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                     input_chunk->feature_chunk.chunk.raw_chunk.size,
                     output_chunk->send_chunk.data,
                     input_chunk->seed);
+                ClearHeaderCDFE(&output_chunk->send_chunk.header);
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_comp_pad_etime, NULL);
@@ -303,6 +335,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
             output_chunk->send_chunk.header.size = sizeof(FileRecipeHead_t);
             memcpy(output_chunk->send_chunk.data, &input_chunk->feature_chunk.chunk.head,
                 sizeof(FileRecipeHead_t));
+            ClearHeaderCDFE(&output_chunk->send_chunk.header);
             
             ret = false;
             break;

@@ -105,6 +105,10 @@ class DataRecvThd{
         uint64_t _total_cdfe_feature_data_size = 0;
         uint64_t _total_cdfe_feature_chunk_num = 0;
         uint64_t _total_cdfe_feature_num = 0;
+        uint64_t _total_cdfe_from_header = 0;
+        uint64_t _total_cdfe_recompute = 0;
+
+        uint64_t _total_cdfe_header_feature_num = 0;
     
 #ifdef EDR_BREAKDOWN
         struct timeval _cipher_fp_stime;

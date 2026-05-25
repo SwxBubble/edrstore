@@ -11,6 +11,40 @@
 
 #include "../../include/client/sender_thd.h"
 
+#include <algorithm>
+#include <cstring>
+
+static inline void ClearHeaderCDFEForSender(SendChunkHeader_t* header) {
+    if (header == nullptr) {
+        return;
+    }
+    header->cdfe_feature_num = 0;
+}
+
+static inline void ExtractCDFEToHeaderForSender(
+    CDFEFeatureExtractor* extractor,
+    const uint8_t* data,
+    uint32_t size,
+    SendChunkHeader_t* header) {
+    if (extractor == nullptr || data == nullptr || header == nullptr ||
+        size == 0) {
+        ClearHeaderCDFEForSender(header);
+        return;
+    }
+
+    ChunkInfo_t tmp_info;
+    memset(&tmp_info, 0, sizeof(ChunkInfo_t));
+    extractor->Extract(data, size, &tmp_info);
+
+    uint32_t n = tmp_info.cdfe_feature_num;
+    n = std::min<uint32_t>(n, MAX_CDFE_WIRE_FEATURES);
+
+    header->cdfe_feature_num = n;
+    for (uint32_t i = 0; i < n; i++) {
+        header->cdfe_features[i].value = tmp_info.cdfe_features[i].value;
+    }
+}
+
 /**
  * @brief Construct a new SenderThd object
  * 
@@ -62,6 +96,7 @@ SenderThd::SenderThd(SSLConnection* server_channel, pair<int, SSL*> server_conn_
 
     // for re-encryption
     two_phase_enc_ = new TwoPhaseEnc();
+    cdfe_extractor_ = new CDFEFeatureExtractor();
 
     // for cache meta
     cache_meta_ = cache_meta;
@@ -76,6 +111,7 @@ SenderThd::~SenderThd() {
     free(send_chunk_buf_.send_buf);
     free(key_recipe_buf_.buf);
     delete two_phase_enc_;
+    delete cdfe_extractor_;
 }
 
 /**
@@ -113,6 +149,11 @@ void SenderThd::Run(AbsMQ<SelectComp2Sender_t>* input_MQ) {
                         tmp_data.key_recipe.key,
                         tmp_enc_buf);
                     tmp_data.send_chunk.header.type = NORMAL_CHUNK;
+                    ExtractCDFEToHeaderForSender(
+                        cdfe_extractor_,
+                        tmp_enc_buf,
+                        tmp_data.send_chunk.header.size,
+                        &tmp_data.send_chunk.header);
                     
                     memcpy(send_chunk_buf_.data_buf + send_chunk_buf_.header->size,
                         &tmp_data.send_chunk.header, sizeof(SendChunkHeader_t));

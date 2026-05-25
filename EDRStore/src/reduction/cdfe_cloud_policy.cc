@@ -30,6 +30,8 @@ void CDFECloudPolicy::FindBaseChunk(ChunkInfo_t* info) {
         return;
     }
 
+    _total_query_raw_feature_num += info->cdfe_feature_num;
+
     std::unordered_set<uint64_t> query_feature_set;
     query_feature_set.reserve(info->cdfe_feature_num * 2);
 
@@ -167,6 +169,8 @@ void CDFECloudPolicy::PrintStats() const {
     std::cerr << "total indexed base: " << _total_indexed_base << "\n";
     std::cerr << "total indexed features: " << _total_indexed_features << "\n";
 
+    std::cerr << "total query raw feature num: "
+              << _total_query_raw_feature_num << "\n";
     std::cerr << "total query feature num: "
               << _total_query_feature_num << "\n";
     std::cerr << "total posting scanned: "
@@ -184,6 +188,10 @@ void CDFECloudPolicy::PrintStats() const {
                   << static_cast<double>(_total_raw_candidates) /
                          static_cast<double>(_total_query)
                   << "\n";
+        std::cerr << "avg raw CDFE features/query: "
+                    << static_cast<double>(_total_query_raw_feature_num) /
+                        static_cast<double>(_total_query)
+                    << "\n";
 
         std::cerr << "avg query features/query: "
                   << static_cast<double>(_total_query_feature_num) /

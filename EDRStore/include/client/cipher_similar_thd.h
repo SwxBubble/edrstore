@@ -16,6 +16,7 @@
 #include "../chunker/rabin_poly.h"
 #include "../message_queue/mq_factory.h"
 #include "../data_structure.h"
+#include "../reduction/cdfe_feature.h"
 
 extern Configure config;
 
@@ -26,6 +27,7 @@ class CipherSimilarThd {
         FinesseUtil* finesse_util_;
         RabinCtx_t rabin_ctx_;
         RabinFPUtil* rabin_util_;
+        CDFEFeatureExtractor* cdfe_extractor_;
     
     public:
 #ifdef EDR_BREAKDOWN
