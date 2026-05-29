@@ -11,6 +11,12 @@
 
 #include "../../include/client/select_comp_thd.h"
 
+namespace {
+
+static const bool kDisableLocalCompressionExperiment = true;
+
+}
+
 /**
  * @brief Construct a new SelectCompThd object
  * 
@@ -68,6 +74,9 @@ void SelectCompThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
         }
 
         if(input_MQ->Pop(tmp_data)){
+            memset(&tmp_send_chunk, 0, sizeof(SelectComp2Sender_t));
+            memset(&tmp_cache_chunk, 0, sizeof(SelectComp2Sender_t));
+
             // extract a chunk from the MQ
             switch (method_type_) {
                 case ONLY_SIMILAR_ENC: {
@@ -195,6 +204,32 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
     bool ret = false;
     switch (input_chunk->feature_chunk.chunk.type) {
         case NORMAL_CHUNK: {
+            if (kDisableLocalCompressionExperiment) {
+#ifdef EDR_BREAKDOWN
+                gettimeofday(&_comp_pad_stime, NULL);
+#endif
+
+                output_chunk->send_chunk.header.type = COMPRESSED_NORMAL_CHUNK;
+                output_chunk->send_chunk.header.size = comp_pad_->CompressWithPad(
+                    input_chunk->feature_chunk.chunk.raw_chunk.data,
+                    input_chunk->feature_chunk.chunk.raw_chunk.size,
+                    output_chunk->send_chunk.data,
+                    input_chunk->seed);
+
+#ifdef EDR_BREAKDOWN
+                gettimeofday(&_comp_pad_etime, NULL);
+                _total_comp_pad_time += tool::GetTimeDiff(_comp_pad_stime,
+                    _comp_pad_etime);
+                _total_comp_pad_size +=
+                    input_chunk->feature_chunk.chunk.raw_chunk.size;
+#endif
+
+                memcpy(output_chunk->key_recipe.key, input_chunk->key,
+                    CHUNK_HASH_SIZE);
+                ret = false;
+                break;
+            }
+
             // check the cache meta data
             bool is_similar = false;
 
@@ -202,7 +237,9 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
             gettimeofday(&_cache_manage_stime, NULL);
 #endif
 
-            is_similar = cache_meta_->QueryCacheMeta(input_chunk->feature_chunk.features);
+            is_similar = cache_meta_->QueryCacheMeta(
+                input_chunk->feature_chunk.cdfe_features,
+                input_chunk->feature_chunk.cdfe_feature_num);
 
 #ifdef EDR_BREAKDOWN
             gettimeofday(&_cache_manage_etime, NULL);
@@ -222,6 +259,12 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 memcpy(output_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                output_chunk->send_chunk.header.cdfe_feature_num =
+                    input_chunk->feature_chunk.cdfe_feature_num;
+                memcpy(output_chunk->send_chunk.header.cdfe_features,
+                    input_chunk->feature_chunk.cdfe_features,
+                    sizeof(CDFEFeature_t) *
+                        input_chunk->feature_chunk.cdfe_feature_num);
 
                 // perform local compression and generate compressed
                 uint8_t compressed_data[ENC_MAX_CHUNK_SIZE];
@@ -258,6 +301,12 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 memcpy(cache_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);  
+                cache_chunk->send_chunk.header.cdfe_feature_num =
+                    input_chunk->feature_chunk.cdfe_feature_num;
+                memcpy(cache_chunk->send_chunk.header.cdfe_features,
+                    input_chunk->feature_chunk.cdfe_features,
+                    sizeof(CDFEFeature_t) *
+                        input_chunk->feature_chunk.cdfe_feature_num);
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_comp_pad_stime, NULL);
@@ -286,7 +335,9 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 gettimeofday(&_cache_manage_stime, NULL);
 #endif
 
-                cache_meta_->UpdateCacheMeta(input_chunk->feature_chunk.features);
+                cache_meta_->UpdateCacheMeta(
+                    input_chunk->feature_chunk.cdfe_features,
+                    input_chunk->feature_chunk.cdfe_feature_num);
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_cache_manage_etime, NULL);

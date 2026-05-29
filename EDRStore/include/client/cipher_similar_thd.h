@@ -12,6 +12,7 @@
 #ifndef CIPHER_SIMILAR_THD_H
 #define CIPHER_SIMILAR_THD_H
 
+#include "../chunker/cdfe_util.h"
 #include "../chunker/finesse_util.h"
 #include "../chunker/rabin_poly.h"
 #include "../message_queue/mq_factory.h"
@@ -24,6 +25,7 @@ class CipherSimilarThd {
         string my_name_ = "CipherSimilarThd";
 
         FinesseUtil* finesse_util_;
+        CDFEUtil* cdfe_util_;
         RabinCtx_t rabin_ctx_;
         RabinFPUtil* rabin_util_;
     

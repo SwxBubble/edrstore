@@ -62,14 +62,29 @@ void InformCache::InsertCachedChunk(WrappedChunk_t* cache_chunk) {
     base_fp_str.assign((char*)cache_chunk->info.fp, CHUNK_HASH_SIZE);    
 
     similar_policy_->UpdateFeatureIndex(local_feature_2_fp_db_,
-        cache_chunk->info.features, base_fp_str);
+        &cache_chunk->info, base_fp_str);
+
+    uint32_t feature_count = SUPER_FEATURE_PER_CHUNK;
+    if (cache_chunk->info.cdfe_feature_num > 0) {
+        feature_count = cache_chunk->info.cdfe_feature_num;
+
+        // The client cache meta now evicts CDFE feature values, so the local
+        // eviction map must use the same feature namespace.
+        for (size_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
+            local_feature_2_fp_db_.erase(cache_chunk->info.features[i]);
+        }
+        for (uint32_t i = 0; i < cache_chunk->info.cdfe_feature_num; i++) {
+            local_feature_2_fp_db_[cache_chunk->info.cdfe_features[i].value] =
+                base_fp_str;
+        }
+    }
     
     if (base_2_cnt_idx_.find(base_fp_str) != base_2_cnt_idx_.end()) {
-        base_2_cnt_idx_[base_fp_str].first += SUPER_FEATURE_PER_CHUNK;
+        base_2_cnt_idx_[base_fp_str].first += feature_count;
     } else {
         // insert to the kv-store
         base_2_cnt_idx_[base_fp_str] = 
-            {SUPER_FEATURE_PER_CHUNK, cache_chunk->info.size};
+            {feature_count, cache_chunk->info.size};
         cache_base_chunk_str_.assign((char*)cache_chunk->data,
             cache_chunk->info.size);
         base_2_data_db_->Insert(base_fp_str, cache_base_chunk_str_);
@@ -98,10 +113,19 @@ bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
             if (base_2_data_db_->QueryBuffer(
                 (char*)input_chunk->info.addr.base_fp,
                 CHUNK_HASH_SIZE, cache_base_chunk_str_)) {
-                output_chunk->info.size = delta_comp_->DeltaEncode(
+                if (!delta_comp_->TryDeltaEncode(
                     (uint8_t*)&cache_base_chunk_str_[0],
-                    cache_base_chunk_str_.size(), input_chunk->data, 
-                    input_chunk->info.size, output_chunk->data);
+                    cache_base_chunk_str_.size(), input_chunk->data,
+                    input_chunk->info.size, output_chunk->data,
+                    &output_chunk->info.size)) {
+                    ret = false;
+                    break;
+                }
+
+                if (output_chunk->info.size >= input_chunk->info.size * 0.2) {
+                    ret = false;
+                    break;
+                }
 
                 // copy the metadata to the input chunk 
                 memcpy(output_chunk->info.addr.base_fp,
@@ -297,9 +321,7 @@ void InformCache::EvictCacheChunk(WrappedChunk_t* evict_chunk) {
 
             local_feature_2_fp_db_.erase(*feature_ptr);
         } else {
-            tool::Logging(my_name_.c_str(), "cannot find the evict feature"
-                "in local feature index.\n");
-            exit(EXIT_FAILURE);
+            continue;
         }
     }
 

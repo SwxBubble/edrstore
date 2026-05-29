@@ -11,6 +11,18 @@
 
 #include "../../include/client/key_gen_thd.h"
 
+namespace {
+
+static const bool kForceSameKeyForCDFEExperiment = false;
+static const bool kUseKeySeedAsEncryptionKeyForCDFEExperiment = false;
+static const uint64_t kFixedPaddingSeedForCDFEExperiment = 1;
+
+static void FillFixedKeyForCDFEExperiment(uint8_t* key) {
+    memset(key, 7, CHUNK_HASH_SIZE);
+}
+
+}
+
 /**
  * @brief Construct a new KeyGenThd object
  * 
@@ -150,6 +162,9 @@ void KeyGenThd::AddChunkToBuf(EncFeatureChunk_t& input_chunk,
 
     memcpy(cur_key_req->features, input_chunk.feature_chunk.features,
         sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+    cur_key_req->cdfe_feature_num = input_chunk.feature_chunk.cdfe_feature_num;
+    memcpy(cur_key_req->cdfe_features, input_chunk.feature_chunk.cdfe_features,
+        sizeof(CDFEFeature_t) * input_chunk.feature_chunk.cdfe_feature_num);
     send_buf_.header->size += sizeof(KeyGenReq_t);
 
     if (chunk_buf_.size() % send_chunk_batch_size_ == 0) {
@@ -207,24 +222,40 @@ void KeyGenThd::ProcessBatch(AbsMQ<EncFeatureChunk_t>* output_MQ) {
         // // chunk_buf_[i].seed = cur_key_ret->seed;
         // chunk_buf_[i].seed = 1;
 
-        // seed = plaintext fp
-        chunk_buf_[i].seed = this->ConvertFp2Val(chunk_buf_[i].feature_chunk.chunk.raw_chunk.fp, CHUNK_HASH_SIZE);
+        if (kForceSameKeyForCDFEExperiment) {
+            chunk_buf_[i].seed = kFixedPaddingSeedForCDFEExperiment;
+            FillFixedKeyForCDFEExperiment(chunk_buf_[i].key);
+        } else {
+            // Similar chunks get the same padding seed when KeyServer
+            // returns the same key_seed.
+            chunk_buf_[i].seed = this->ConvertFp2Val(
+                cur_key_ret->key_seed, CHUNK_HASH_SIZE);
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_key_gen_stime, NULL);
 #endif
 
-        // final key = H (sampled plaintext content || key seed)
-        uint8_t tmp_generating_key_buf[CHUNK_HASH_SIZE * 2];
-        memcpy(tmp_generating_key_buf, chunk_buf_[i].feature_chunk.chunk.raw_chunk.data, CHUNK_HASH_SIZE);
-        memcpy(tmp_generating_key_buf + CHUNK_HASH_SIZE, cur_key_ret->key_seed, CHUNK_HASH_SIZE);
-        crypto_util_->GenerateHash(md_ctx, tmp_generating_key_buf, CHUNK_HASH_SIZE * 2, chunk_buf_[i].key);
+            if (kUseKeySeedAsEncryptionKeyForCDFEExperiment) {
+                memcpy(chunk_buf_[i].key, cur_key_ret->key_seed,
+                    CHUNK_HASH_SIZE);
+            } else {
+                // final key = H (sampled plaintext content || key seed)
+                uint8_t tmp_generating_key_buf[CHUNK_HASH_SIZE * 2];
+                memcpy(tmp_generating_key_buf,
+                    chunk_buf_[i].feature_chunk.chunk.raw_chunk.data,
+                    CHUNK_HASH_SIZE);
+                memcpy(tmp_generating_key_buf + CHUNK_HASH_SIZE,
+                    cur_key_ret->key_seed, CHUNK_HASH_SIZE);
+                crypto_util_->GenerateHash(md_ctx, tmp_generating_key_buf,
+                    CHUNK_HASH_SIZE * 2, chunk_buf_[i].key);
+            }
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_key_gen_etime, NULL);
     _total_key_gen_time += tool::GetTimeDiff(_key_gen_stime,
         _key_gen_etime);
 #endif
+        }
 
 #ifdef EDR_BREAKDOWN
         gettimeofday(&_two_enc_stime, NULL);

@@ -86,9 +86,6 @@ void BasicKM::Run(SSL* key_client_ssl) {
     uint8_t tmp_hash_buf[CHUNK_HASH_SIZE * 2] = {0};
     memcpy(tmp_hash_buf, global_secret_, CHUNK_HASH_SIZE);
 
-    uint8_t tmp_feature_buf[CHUNK_HASH_SIZE + sizeof(uint64_t) * 3] = {0};
-    memcpy(tmp_feature_buf, global_secret_, CHUNK_HASH_SIZE);
-
     // uint8_t tmp_padding_hash_buf[CHUNK_HASH_SIZE * 2] = {0};
     // memcpy(tmp_padding_hash_buf, global_padding_secret_,
     //     CHUNK_HASH_SIZE);
@@ -129,6 +126,11 @@ void BasicKM::Run(SSL* key_client_ssl) {
 
                 memcpy(tmp_info.features, cur_key_gen_req->features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK); 
+                tmp_info.cdfe_feature_num = min(
+                    cur_key_gen_req->cdfe_feature_num,
+                    CDFE_MAX_FEATURE_PER_CHUNK);
+                memcpy(tmp_info.cdfe_features, cur_key_gen_req->cdfe_features,
+                    sizeof(CDFEFeature_t) * tmp_info.cdfe_feature_num);
                 similar_policy_->FindBaseChunk(feature_2_key_index_, &tmp_info);
 
                 switch (tmp_info.stat) {
@@ -148,19 +150,33 @@ void BasicKM::Run(SSL* key_client_ssl) {
 
                         
                         // generate new key here
-                        memcpy(tmp_feature_buf + CHUNK_HASH_SIZE, &tmp_info.features[0], 
-                            sizeof(uint64_t));
-                        memcpy(tmp_feature_buf + CHUNK_HASH_SIZE + sizeof(uint64_t), 
-                            &tmp_info.features[1], sizeof(uint64_t));
-                        memcpy(tmp_feature_buf + CHUNK_HASH_SIZE + sizeof(uint64_t) * 2, 
-                            &tmp_info.features[2], sizeof(uint64_t));
+                        vector<uint8_t> tmp_feature_buf(
+                            CHUNK_HASH_SIZE +
+                            sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK +
+                            sizeof(uint32_t) +
+                            sizeof(CDFEFeature_t) * tmp_info.cdfe_feature_num);
+                        uint8_t* tmp_feature_ptr = tmp_feature_buf.data();
+                        memcpy(tmp_feature_ptr, global_secret_, CHUNK_HASH_SIZE);
+                        tmp_feature_ptr += CHUNK_HASH_SIZE;
+                        memcpy(tmp_feature_ptr, tmp_info.features,
+                            sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                        tmp_feature_ptr +=
+                            sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK;
+                        memcpy(tmp_feature_ptr, &tmp_info.cdfe_feature_num,
+                            sizeof(uint32_t));
+                        tmp_feature_ptr += sizeof(uint32_t);
+                        memcpy(tmp_feature_ptr, tmp_info.cdfe_features,
+                            sizeof(CDFEFeature_t) * tmp_info.cdfe_feature_num);
 
-                        crypto_util_->GenerateHash(md_ctx, tmp_feature_buf, CHUNK_HASH_SIZE + 
-                            sizeof(uint64_t) * 3, cur_key_gen_ret->key_seed);                   
+                        crypto_util_->GenerateHash(md_ctx,
+                            tmp_feature_buf.data(), tmp_feature_buf.size(),
+                            cur_key_gen_ret->key_seed);
 
                         // update the index
+                        memcpy(tmp_info.fp, cur_key_gen_ret->key_seed,
+                            CHUNK_HASH_SIZE);
                         similar_policy_->UpdateFeatureIndex(feature_2_key_index_,
-                            tmp_info.features, cur_key_gen_ret->key_seed);
+                            &tmp_info);
                         break;
                     }
                     default: {

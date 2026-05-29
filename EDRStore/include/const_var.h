@@ -28,6 +28,11 @@ static const uint32_t FEATURE_PER_SUPER_FEATURE = 4; // 4 features per super-fea
 static const uint32_t FEATURE_PER_CHUNK = SUPER_FEATURE_PER_CHUNK * 
     FEATURE_PER_SUPER_FEATURE; // 12 total features per chunk
 
+// CDFE set-order feature settings. With the default 16KB max chunk and
+// 256B min subblock this leaves room for every subblock plus a little slack.
+static const uint32_t CDFE_MAX_FEATURE_PER_CHUNK = 96;
+static const uint32_t CDFE_TOPK_BASE_CANDIDATES = 4;
+
 // for rabin fingerprint
 static const uint64_t FINGERPRINT_PT = 0xbfe6b8a5bf378d83LL;
 

@@ -16,6 +16,7 @@
 #include "../database/db_factory.h"
 #include "../network/ssl_conn.h"
 #include "../reduction/dedup_detect.h"
+#include "../chunker/cdfe_util.h"
 #include "../chunker/finesse_util.h"
 #include "client_var.h"
 
@@ -39,6 +40,7 @@ class DataRecvThd{
 
         // for feature computation
         FinesseUtil* finesse_util_;
+        CDFEUtil* cdfe_util_;
 
         // for fingerprinting
         CryptoUtil* crypto_util_;

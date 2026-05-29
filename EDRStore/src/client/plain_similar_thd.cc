@@ -19,6 +19,7 @@ PlainSimilarThd::PlainSimilarThd() {
     rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
     finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,    
         FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+    cdfe_util_ = new CDFEUtil();
     rabin_util_->NewCtx(rabin_ctx_);
 }
 
@@ -30,6 +31,7 @@ PlainSimilarThd::~PlainSimilarThd() {
     rabin_util_->FreeCtx(rabin_ctx_);
     delete rabin_util_;
     delete finesse_util_;
+    delete cdfe_util_;
 }
 
 /**
@@ -64,8 +66,9 @@ void PlainSimilarThd::Run(AbsMQ<Chunk_t>* input_MQ,
 
             switch(tmp_data.chunk.type) {
                 case NORMAL_CHUNK: {
-                    finesse_util_->ExtractFeature(rabin_ctx_, tmp_data.chunk.raw_chunk.data,
-                        tmp_data.chunk.raw_chunk.size, tmp_data.features);
+                    cdfe_util_->ExtractFeature(tmp_data.chunk.raw_chunk.data,
+                        tmp_data.chunk.raw_chunk.size, tmp_data.features,
+                        &tmp_data.cdfe_feature_num, tmp_data.cdfe_features);
                     break;
                 }
                 case RECIPE_CHUNK: {

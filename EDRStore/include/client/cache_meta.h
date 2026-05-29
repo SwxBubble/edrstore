@@ -88,6 +88,9 @@ class CacheMeta{
          */
         void UpdateCacheMeta(uint64_t* features);
 
+        void UpdateCacheMeta(CDFEFeature_t* cdfe_features,
+            uint32_t cdfe_feature_num);
+
         /**
          * @brief query the cache meta to check whether it is similar?
          * 
@@ -96,6 +99,9 @@ class CacheMeta{
          * @return false it is non-similar chunk
          */
         bool QueryCacheMeta(uint64_t* features);
+
+        bool QueryCacheMeta(CDFEFeature_t* cdfe_features,
+            uint32_t cdfe_feature_num);
 
         /**
          * @brief evict feature based on last_n_para_
