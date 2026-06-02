@@ -84,10 +84,7 @@ void DataWriterThd::Run(ClientVar* cur_client) {
                         case NON_SIMILAR_CHUNK: {
                             this->ProcNonSimilarChunk(&tmp_data, cur_client);
                             similar_policy_->UpdateFeatureIndex(
-                                feature_2_fp_db_,
-                                tmp_data.info.features,
-                                tmp_data.info.fp
-                            );
+                                feature_2_fp_db_, &tmp_data.info);
                             break;
                         }
                         default: {
@@ -140,29 +137,71 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     uint32_t base_chunk_size = 0;
     uint8_t delta_chunk[ENC_MAX_CHUNK_SIZE];
     uint32_t delta_chunk_size = 0;
-
-    base_chunk_size = this->FetchBaseChunk(input_chunk->info.addr.base_fp,
-        base_chunk, cur_client);
-
-    if(base_chunk_size == 0){
-        // avoid delta, directly write
-        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-        input_chunk->info.size, cur_client);
-    }
+    uint8_t best_delta_chunk[ENC_MAX_CHUNK_SIZE];
+    uint32_t best_delta_chunk_size = UINT32_MAX;
+    uint8_t best_base_fp[CHUNK_HASH_SIZE];
+    bool found_good_delta = false;
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_stime, NULL);
 #endif
 
-    delta_chunk_size = delta_comp_->DeltaEncode(base_chunk, base_chunk_size,
-        input_chunk->data, input_chunk->info.size, delta_chunk);
+    uint32_t candidate_num = input_chunk->info.cdfe_candidate_num;
+    if (candidate_num == 0) {
+        candidate_num = 1;
+        memcpy(input_chunk->info.cdfe_candidate_base_fp[0],
+            input_chunk->info.addr.base_fp, CHUNK_HASH_SIZE);
+    }
 
-    storage_core_->WriteChunk(&input_chunk->info.addr, delta_chunk,
-        delta_chunk_size, cur_client);
+    candidate_num = min<uint32_t>(candidate_num, CDFE_TOPK_BASE_CANDIDATES);
+    for (uint32_t i = 0; i < candidate_num; i++) {
+        base_chunk_size = this->FetchBaseChunk(
+            input_chunk->info.cdfe_candidate_base_fp[i], base_chunk,
+            cur_client);
+        if (base_chunk_size == 0) {
+            continue;
+        }
+
+        if (!delta_comp_->TryDeltaEncode(base_chunk, base_chunk_size,
+            input_chunk->data, input_chunk->info.size, delta_chunk,
+            &delta_chunk_size)) {
+            continue;
+        }
+
+        if (delta_chunk_size < best_delta_chunk_size) {
+            best_delta_chunk_size = delta_chunk_size;
+            memcpy(best_delta_chunk, delta_chunk, delta_chunk_size);
+            memcpy(best_base_fp, input_chunk->info.cdfe_candidate_base_fp[i],
+                CHUNK_HASH_SIZE);
+        }
+    }
+
+    if (best_delta_chunk_size < input_chunk->info.size * 0.2) {
+        found_good_delta = true;
+    }
+
+    if (!found_good_delta) {
+        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
+            input_chunk->info.size, cur_client);
+        input_chunk->info.addr.stat = COMP_BASE_CHUNK;
+        similar_policy_->UpdateFeatureIndex(feature_2_fp_db_,
+            &input_chunk->info);
+        if (_total_similar_chunk_num > 0) {
+            _total_similar_chunk_num--;
+        }
+        if (_total_similar_data_size >= input_chunk->info.size) {
+            _total_similar_data_size -= input_chunk->info.size;
+        }
+        return ;
+    }
+
+    memcpy(input_chunk->info.addr.base_fp, best_base_fp, CHUNK_HASH_SIZE);
+    storage_core_->WriteChunk(&input_chunk->info.addr, best_delta_chunk,
+        best_delta_chunk_size, cur_client);
     input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
 
     // update stat
-    _total_delta_size += delta_chunk_size;
+    _total_delta_size += best_delta_chunk_size;
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_etime, NULL);
@@ -216,8 +255,7 @@ uint32_t DataWriterThd::FetchBaseChunk(uint8_t* base_fp, uint8_t* base_data,
 
     // step-1: query the fp index to get the base chunk address
     if (!fp_2_addr_db_->QueryBuffer((char*)base_fp, CHUNK_HASH_SIZE, base_addr_str)) {
-        tool::Logging(my_name_.c_str(), "req base chunk not exits.\n");
-        exit(EXIT_FAILURE);
+        return 0;
     }
 
     // step-2: read base chunk from the disk

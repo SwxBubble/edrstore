@@ -13,6 +13,7 @@
 #define EDRSTORE_CACHE_META_H
 
 #include "../configure.h"
+#include "../data_structure.h"
 #include "../define.h"
 #include "../crypto/crypto_util.h"
 #include "../network/ssl_conn.h"
@@ -87,6 +88,8 @@ class CacheMeta{
          * @param features input features
          */
         void UpdateCacheMeta(uint64_t* features);
+        void UpdateCacheMeta(CDFEFeature_t* cdfe_features,
+            uint32_t cdfe_feature_num);
 
         /**
          * @brief query the cache meta to check whether it is similar?
@@ -96,6 +99,8 @@ class CacheMeta{
          * @return false it is non-similar chunk
          */
         bool QueryCacheMeta(uint64_t* features);
+        bool QueryCacheMeta(CDFEFeature_t* cdfe_features,
+            uint32_t cdfe_feature_num);
 
         /**
          * @brief evict feature based on last_n_para_

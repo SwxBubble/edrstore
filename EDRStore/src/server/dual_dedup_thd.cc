@@ -16,11 +16,13 @@ DualDedupThd::DualDedupThd(AbsDatabase* fp_2_addr_db) {
     dedup_util_ = new DedupDetect(fp_2_addr_db_);
     finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
     FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+    cdfe_util_ = new CDFEUtil();
 }
 
 DualDedupThd::~DualDedupThd() {
     delete dedup_util_;
     delete finesse_util_;
+    delete cdfe_util_;
 }
 
 /**
@@ -68,19 +70,23 @@ void DualDedupThd::Run(ClientVar* cur_client) {
 
                     if(input_data.info.stat == UNIQUE_CHUNK) {
                         input_data.info.stat = UNIQUE_CHUNK_AFTER_CACHE;
+                        if (input_data.info.cdfe_feature_num == 0) {
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_stime, NULL);
 #endif
-                        // compute the feature here
-                        finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
-                            input_data.data, input_data.info.size,
-                            input_data.info.features);
+                            // Fallback for legacy paths that do not carry
+                            // ciphertext CDFE features from the client.
+                            cdfe_util_->ExtractFeature(input_data.data,
+                                input_data.info.size, input_data.info.features,
+                                &input_data.info.cdfe_feature_num,
+                                input_data.info.cdfe_features);
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);
                     _total_cipher_feature_time += tool::GetTimeDiff(
                         _cipher_feature_stime, _cipher_feature_etime);
                     _total_cipher_feature_data_size += input_data.info.size;
 #endif
+                        }
                         output_MQ->Push(input_data);
 
                         // update stat
@@ -88,6 +94,13 @@ void DualDedupThd::Run(ClientVar* cur_client) {
                         _total_unique_data_size += input_data.info.size;
                     }
                     
+                    break;
+                }
+                case UNIQUE_CHUNK: {
+                    // DataRecvThd has already deduplicated NORMAL_CHUNK.
+                    output_MQ->Push(input_data);
+                    _total_unique_chunk_num++;
+                    _total_unique_data_size += input_data.info.size;
                     break;
                 }
                 case SINGLE_CHUNK: {
@@ -121,7 +134,8 @@ void DualDedupThd::Run(ClientVar* cur_client) {
                     break;
                 }
                 default: {
-                    tool::Logging(my_name_.c_str(), "wrong chunk input type.\n");
+                    tool::Logging(my_name_.c_str(),
+                        "wrong chunk input type: %u.\n", input_data.info.stat);
                     exit(EXIT_FAILURE);
                 }
 

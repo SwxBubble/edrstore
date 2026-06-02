@@ -26,6 +26,7 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
     send_recipe_batch_size_ = config.GetSendRecipeBatchSize();
     finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
         FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+    cdfe_util_ = new CDFEUtil();
     crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
 }
 
@@ -36,6 +37,7 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
 DataRecvThd::~DataRecvThd() {
     delete dedup_util_;
     delete finesse_util_;
+    delete cdfe_util_;
     delete crypto_util_;
 }
 
@@ -135,6 +137,7 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
         chunk_header_ptr = (SendChunkHeader_t*)(data_buf + offset);
         offset += sizeof(SendChunkHeader_t);
         chunk_data = data_buf + offset;
+        memset(&tmp_chunk, 0, sizeof(WrappedChunk_t));
 
         switch (chunk_header_ptr->type) {
             case FULL_EDR_CACHE_CHUNK: {
@@ -161,6 +164,12 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 // copy the cipher feature from the client
                 memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                tmp_chunk.info.cdfe_feature_num = min(
+                    chunk_header_ptr->cdfe_feature_num,
+                    CDFE_MAX_FEATURE_PER_CHUNK);
+                memcpy(tmp_chunk.info.cdfe_features,
+                    chunk_header_ptr->cdfe_features,
+                    sizeof(CDFEFeature_t) * tmp_chunk.info.cdfe_feature_num);
 
                 // mark this chunk is for cache insertion
                 tmp_chunk.info.stat = CACHE_INSERT_CHUNK;
@@ -262,6 +271,12 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 // copy the cipher feature from the client
                 memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                tmp_chunk.info.cdfe_feature_num = min(
+                    chunk_header_ptr->cdfe_feature_num,
+                    CDFE_MAX_FEATURE_PER_CHUNK);
+                memcpy(tmp_chunk.info.cdfe_features,
+                    chunk_header_ptr->cdfe_features,
+                    sizeof(CDFEFeature_t) * tmp_chunk.info.cdfe_feature_num);
                 output_MQ->Push(tmp_chunk);
 
                 this->ProcessRecipe(cur_client, tmp_chunk.info.fp);
@@ -317,9 +332,10 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
 #endif
 
                     // compute the feature here
-                    finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
-                        tmp_chunk.data, tmp_chunk.info.size,
-                        tmp_chunk.info.features);
+                    cdfe_util_->ExtractFeature(tmp_chunk.data,
+                        tmp_chunk.info.size, tmp_chunk.info.features,
+                        &tmp_chunk.info.cdfe_feature_num,
+                        tmp_chunk.info.cdfe_features);
 
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);

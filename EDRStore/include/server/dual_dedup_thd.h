@@ -16,6 +16,7 @@
 #include "../database/db_factory.h"
 #include "../reduction/dedup_detect.h"
 #include "../chunker/finesse_util.h"
+#include "../chunker/cdfe_util.h"
 #include "client_var.h"
 
 extern Configure config;
@@ -30,6 +31,7 @@ class DualDedupThd{
 
         // for feature computation
         FinesseUtil* finesse_util_;
+        CDFEUtil* cdfe_util_;
 
         // for fingerprinting
         CryptoUtil* crypto_util_;

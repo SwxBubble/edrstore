@@ -150,6 +150,9 @@ void KeyGenThd::AddChunkToBuf(EncFeatureChunk_t& input_chunk,
 
     memcpy(cur_key_req->features, input_chunk.feature_chunk.features,
         sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+    cur_key_req->cdfe_feature_num = input_chunk.feature_chunk.cdfe_feature_num;
+    memcpy(cur_key_req->cdfe_features, input_chunk.feature_chunk.cdfe_features,
+        sizeof(CDFEFeature_t) * input_chunk.feature_chunk.cdfe_feature_num);
     send_buf_.header->size += sizeof(KeyGenReq_t);
 
     if (chunk_buf_.size() % send_chunk_batch_size_ == 0) {
@@ -207,8 +210,9 @@ void KeyGenThd::ProcessBatch(AbsMQ<EncFeatureChunk_t>* output_MQ) {
         // // chunk_buf_[i].seed = cur_key_ret->seed;
         // chunk_buf_[i].seed = 1;
 
-        // seed = plaintext fp
-        chunk_buf_[i].seed = this->ConvertFp2Val(chunk_buf_[i].feature_chunk.chunk.raw_chunk.fp, CHUNK_HASH_SIZE);
+        // Similar plaintext chunks reuse the KeyServer seed for padding.
+        chunk_buf_[i].seed = this->ConvertFp2Val(
+            cur_key_ret->key_seed, CHUNK_HASH_SIZE);
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_key_gen_stime, NULL);

@@ -47,6 +47,10 @@ class DeltaComp {
          */
         uint32_t DeltaEncode(uint8_t* base_chunk, uint32_t base_size,
             uint8_t* input_chunk, uint32_t input_size, uint8_t* delta_chunk);
+
+        bool TryDeltaEncode(uint8_t* base_chunk, uint32_t base_size,
+            uint8_t* input_chunk, uint32_t input_size, uint8_t* delta_chunk,
+            uint32_t* delta_size);
         
         /**
          * @brief perform delta decoding

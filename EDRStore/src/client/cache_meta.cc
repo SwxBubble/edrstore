@@ -137,6 +137,14 @@ void CacheMeta::UpdateCacheMeta(uint64_t* features) {
     return ;
 }
 
+void CacheMeta::UpdateCacheMeta(CDFEFeature_t* cdfe_features,
+    uint32_t cdfe_feature_num) {
+    for (uint32_t i = 0; i < cdfe_feature_num; i++) {
+        feature_2_version_idx_[cdfe_features[i].value] = cur_version_num_;
+    }
+    return ;
+}
+
 /**
  * @brief query the cache meta to check whether it is similar?
  * 
@@ -154,6 +162,31 @@ bool CacheMeta::QueryCacheMeta(uint64_t* features) {
             is_similar = true;
         }
     }
+    if (is_similar) {
+        _total_similar_chunk++;
+    }
+
+    return is_similar;
+}
+
+bool CacheMeta::QueryCacheMeta(CDFEFeature_t* cdfe_features,
+    uint32_t cdfe_feature_num) {
+    if (cdfe_feature_num == 0) {
+        return false;
+    }
+
+    uint32_t matched_feature_num = 0;
+    for (uint32_t i = 0; i < cdfe_feature_num; i++) {
+        auto find_ret = feature_2_version_idx_.find(cdfe_features[i].value);
+        if (find_ret != feature_2_version_idx_.end()) {
+            find_ret->second = cur_version_num_;
+            matched_feature_num++;
+        }
+    }
+
+    const uint32_t min_match_num = std::max<uint32_t>(
+        4, static_cast<uint32_t>(cdfe_feature_num * 0.25));
+    bool is_similar = matched_feature_num >= min_match_num;
     if (is_similar) {
         _total_similar_chunk++;
     }

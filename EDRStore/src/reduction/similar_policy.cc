@@ -16,6 +16,24 @@ bool CmpPair(pair<string, uint32_t>& a,
     return a.second > b.second;
 }
 
+struct CDFECandidateScore {
+    string base_fp;
+    uint32_t matched = 0;
+    uint32_t aligned = 0;
+    float pos_error = 0;
+};
+
+bool CmpCDFECandidate(const CDFECandidateScore& a,
+    const CDFECandidateScore& b) {
+    if (a.aligned != b.aligned) {
+        return a.aligned > b.aligned;
+    }
+    if (a.matched != b.matched) {
+        return a.matched > b.matched;
+    }
+    return a.pos_error < b.pos_error;
+}
+
 /**
  * @brief Construct a new SimilarPolicy object
  * 
@@ -32,6 +50,79 @@ SimilarPolicy::~SimilarPolicy() {
 
 }
 
+bool SimilarPolicy::FindBaseChunkByCDFE(ChunkInfo_t* info) {
+    if (info->cdfe_feature_num == 0) {
+        return false;
+    }
+
+    unordered_map<string, CDFECandidateScore> candidate_map;
+    uint32_t query_subblock_count = info->cdfe_feature_num;
+    for (uint32_t i = 0; i < info->cdfe_feature_num; i++) {
+        query_subblock_count = max(query_subblock_count,
+            static_cast<uint32_t>(info->cdfe_features[i].subblock_rank) + 1);
+    }
+
+    for (uint32_t i = 0; i < info->cdfe_feature_num; i++) {
+        CDFEFeature_t& qf = info->cdfe_features[i];
+        auto posting_ret = cdfe_index_.find(qf.value);
+        if (posting_ret == cdfe_index_.end() ||
+            posting_ret->second.size() > cdfe_hot_posting_limit_) {
+            continue;
+        }
+
+        for (auto& posting : posting_ret->second) {
+            auto& score = candidate_map[posting.base_fp];
+            if (score.base_fp.empty()) {
+                score.base_fp = posting.base_fp;
+            }
+            score.matched++;
+            if (posting.subblock_rank == qf.subblock_rank) {
+                score.aligned++;
+            }
+            score.pos_error += fabs(posting.norm_pos - qf.norm_pos);
+        }
+    }
+
+    vector<CDFECandidateScore> candidates;
+    for (auto& it : candidate_map) {
+        CDFECandidateScore& score = it.second;
+        uint32_t base_subblock_count = query_subblock_count;
+        auto cnt_ret = cdfe_base_subblock_count_.find(score.base_fp);
+        if (cnt_ret != cdfe_base_subblock_count_.end()) {
+            base_subblock_count = cnt_ret->second;
+        }
+
+        uint32_t denom = query_subblock_count + base_subblock_count -
+            min(query_subblock_count, score.matched);
+        float jaccard_proxy = denom == 0 ? 0 :
+            static_cast<float>(score.matched) / static_cast<float>(denom);
+        float avg_pos_error = score.matched == 0 ? 1 :
+            score.pos_error / static_cast<float>(score.matched);
+
+        if (score.matched >= cdfe_min_matched_subblocks_ &&
+            score.aligned >= cdfe_min_aligned_subblocks_ &&
+            jaccard_proxy >= cdfe_min_jaccard_proxy_ &&
+            avg_pos_error <= cdfe_pos_tolerance_) {
+            candidates.push_back(score);
+        }
+    }
+
+    if (candidates.empty()) {
+        return false;
+    }
+
+    sort(candidates.begin(), candidates.end(), CmpCDFECandidate);
+    info->cdfe_candidate_num = min<uint32_t>(candidates.size(),
+        CDFE_TOPK_BASE_CANDIDATES);
+    for (uint32_t i = 0; i < info->cdfe_candidate_num; i++) {
+        memcpy(info->cdfe_candidate_base_fp[i], candidates[i].base_fp.c_str(),
+            CHUNK_HASH_SIZE);
+    }
+    memcpy(info->addr.base_fp, candidates[0].base_fp.c_str(),
+        CHUNK_HASH_SIZE);
+    return true;
+}
+
 /**
  * @brief find the base chunk
  * 
@@ -40,6 +131,12 @@ SimilarPolicy::~SimilarPolicy() {
  */
 void SimilarPolicy::FindBaseChunk(AbsDatabase* feature_2_fp_db,
     ChunkInfo_t* info) {
+    info->cdfe_candidate_num = 0;
+    if (FindBaseChunkByCDFE(info)) {
+        info->stat = SIMILAR_CHUNK;
+        return ;
+    }
+
     // query the feature index to get the base chunk hash
     unordered_map<string, uint32_t> feature_freq_map;
     bool is_similar = false;
@@ -96,6 +193,12 @@ void SimilarPolicy::FindBaseChunk(AbsDatabase* feature_2_fp_db,
 void SimilarPolicy::FindBaseChunk(
     unordered_map<uint64_t, string>& feature_2_fp_db,
     ChunkInfo_t* info) {
+    info->cdfe_candidate_num = 0;
+    if (FindBaseChunkByCDFE(info)) {
+        info->stat = SIMILAR_CHUNK;
+        return ;
+    }
+
     // query the feature index to get the base chunk hash
     unordered_map<string, uint32_t> feature_freq_map;
     bool is_similar = false;
@@ -159,6 +262,30 @@ void SimilarPolicy::UpdateFeatureIndex(AbsDatabase* feature_2_fp_db,
     return ;
 }
 
+void SimilarPolicy::UpdateCDFEIndex(CDFEFeature_t* cdfe_features,
+    uint32_t cdfe_feature_num, string& base_fp) {
+    uint32_t subblock_count = cdfe_feature_num;
+    for (uint32_t i = 0; i < cdfe_feature_num; i++) {
+        subblock_count = max(subblock_count,
+            static_cast<uint32_t>(cdfe_features[i].subblock_rank) + 1);
+        auto& posting_list = cdfe_index_[cdfe_features[i].value];
+        posting_list.push_back({base_fp, cdfe_features[i].subblock_rank,
+            cdfe_features[i].norm_pos});
+    }
+    cdfe_base_subblock_count_[base_fp] = subblock_count;
+}
+
+void SimilarPolicy::UpdateFeatureIndex(AbsDatabase* feature_2_fp_db,
+    ChunkInfo_t* info) {
+    UpdateFeatureIndex(feature_2_fp_db, info->features, info->fp);
+    if (info->cdfe_feature_num > 0) {
+        string base_fp;
+        base_fp.assign((char*)info->fp, CHUNK_HASH_SIZE);
+        UpdateCDFEIndex(info->cdfe_features, info->cdfe_feature_num, base_fp);
+    }
+    return ;
+}
+
 /**
  * @brief update the feature index
  * 
@@ -172,6 +299,18 @@ void SimilarPolicy::UpdateFeatureIndex(
     // non-similar chunk, update the feature index
     for (size_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
         feature_2_fp_db[features[i]] = base_fp;
+    }
+    return ;
+}
+
+void SimilarPolicy::UpdateFeatureIndex(
+    unordered_map<uint64_t, string>& feature_2_fp_db,
+    ChunkInfo_t* info) {
+    string base_fp;
+    base_fp.assign((char*)info->fp, CHUNK_HASH_SIZE);
+    UpdateFeatureIndex(feature_2_fp_db, info->features, base_fp);
+    if (info->cdfe_feature_num > 0) {
+        UpdateCDFEIndex(info->cdfe_features, info->cdfe_feature_num, base_fp);
     }
     return ;
 }

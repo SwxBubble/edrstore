@@ -49,6 +49,23 @@ uint32_t DeltaComp::DeltaEncode(uint8_t* base_chunk, uint32_t base_size,
     return ret_size;
 }
 
+bool DeltaComp::TryDeltaEncode(uint8_t* base_chunk, uint32_t base_size,
+    uint8_t* input_chunk, uint32_t input_size, uint8_t* delta_chunk,
+    uint32_t* delta_size) {
+    uint64_t ret_size = 0;
+    int ret = xd3_encode_memory(input_chunk, input_size, base_chunk, base_size,
+        delta_chunk, &ret_size, ENC_MAX_CHUNK_SIZE, delta_flag_);
+    if (ret != 0 || ret_size > UINT32_MAX) {
+        tool::Logging(my_name_.c_str(), "skip failed delta candidate: %d.\n",
+            ret);
+        *delta_size = 0;
+        return false;
+    }
+
+    *delta_size = static_cast<uint32_t>(ret_size);
+    return true;
+}
+
 /**
  * @brief perform delta decoding
  * 

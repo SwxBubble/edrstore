@@ -17,6 +17,7 @@
 #include "../network/ssl_conn.h"
 #include "../reduction/dedup_detect.h"
 #include "../chunker/finesse_util.h"
+#include "../chunker/cdfe_util.h"
 #include "client_var.h"
 
 extern Configure config;
@@ -39,6 +40,7 @@ class DataRecvThd{
 
         // for feature computation
         FinesseUtil* finesse_util_;
+        CDFEUtil* cdfe_util_;
 
         // for fingerprinting
         CryptoUtil* crypto_util_;

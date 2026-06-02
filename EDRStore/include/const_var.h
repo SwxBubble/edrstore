@@ -27,6 +27,8 @@ static const uint32_t SUPER_FEATURE_PER_CHUNK = 3; // 3 super-feature per chunk
 static const uint32_t FEATURE_PER_SUPER_FEATURE = 4; // 4 features per super-feature
 static const uint32_t FEATURE_PER_CHUNK = SUPER_FEATURE_PER_CHUNK * 
     FEATURE_PER_SUPER_FEATURE; // 12 total features per chunk
+static const uint32_t CDFE_MAX_FEATURE_PER_CHUNK = 96;
+static const uint32_t CDFE_TOPK_BASE_CANDIDATES = 4;
 
 // for rabin fingerprint
 static const uint64_t FINGERPRINT_PT = 0xbfe6b8a5bf378d83LL;

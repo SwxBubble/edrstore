@@ -19,6 +19,7 @@ CipherSimilarThd::CipherSimilarThd() {
     rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
     finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
         FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+    cdfe_util_ = new CDFEUtil();
     rabin_util_->NewCtx(rabin_ctx_);
 }
 
@@ -30,6 +31,7 @@ CipherSimilarThd::~CipherSimilarThd() {
     rabin_util_->FreeCtx(rabin_ctx_);
     delete rabin_util_;
     delete finesse_util_;
+    delete cdfe_util_;
 }
 
 /**
@@ -63,9 +65,13 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
 
             switch (tmp_data.feature_chunk.chunk.type) {
                 case NORMAL_CHUNK: {
-                    // re-use the plaintext feature buffer to store features of ciphertext chunk
-                    finesse_util_->ExtractFeature(rabin_ctx_, tmp_data.enc_data,
-                        tmp_data.enc_size, tmp_data.feature_chunk.features);
+                    // KeyServer has already consumed the plaintext CDFE
+                    // features. The storage server indexes encrypted bytes
+                    // because delta is encoded on encrypted chunks.
+                    cdfe_util_->ExtractFeature(tmp_data.enc_data,
+                        tmp_data.enc_size, tmp_data.feature_chunk.features,
+                        &tmp_data.feature_chunk.cdfe_feature_num,
+                        tmp_data.feature_chunk.cdfe_features);
                     break;    
                 }
                 case RECIPE_CHUNK: {

@@ -18,6 +18,22 @@
 class SimilarPolicy {
     private:
         string my_name_ = "SimilarPolicy";
+        struct CDFEPosting {
+            string base_fp;
+            uint16_t subblock_rank;
+            float norm_pos;
+        };
+        unordered_map<uint64_t, vector<CDFEPosting>> cdfe_index_;
+        unordered_map<string, uint32_t> cdfe_base_subblock_count_;
+        uint32_t cdfe_hot_posting_limit_ = 256;
+        uint32_t cdfe_min_matched_subblocks_ = 4;
+        uint32_t cdfe_min_aligned_subblocks_ = 2;
+        float cdfe_min_jaccard_proxy_ = 0.25;
+        float cdfe_pos_tolerance_ = 0.15;
+
+        bool FindBaseChunkByCDFE(ChunkInfo_t* info);
+        void UpdateCDFEIndex(CDFEFeature_t* cdfe_features,
+            uint32_t cdfe_feature_num, string& base_fp);
 
     public:
         /**
@@ -59,6 +75,8 @@ class SimilarPolicy {
          */
         void UpdateFeatureIndex(AbsDatabase* feature_2_fp_db,
             uint64_t* features, uint8_t* base_fp);
+        void UpdateFeatureIndex(AbsDatabase* feature_2_fp_db,
+            ChunkInfo_t* info);
 
         /**
          * @brief update the feature index
@@ -69,6 +87,8 @@ class SimilarPolicy {
          */
         void UpdateFeatureIndex(unordered_map<uint64_t, string>& feature_2_fp_db,
             uint64_t* features, string& base_fp);
+        void UpdateFeatureIndex(unordered_map<uint64_t, string>& feature_2_fp_db,
+            ChunkInfo_t* info);
 };
 
 #endif
