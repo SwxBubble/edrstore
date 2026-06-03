@@ -88,14 +88,10 @@ void CacheCompThd::Run(ClientVar* cur_client) {
                         _total_similar_data_size += input_data.info.size;
                         _total_delta_size += output_data.info.size;
                     } else {
-                        // non-similar chunk, back to original stat
-                        if (inform_cache->GetCacheSize() == 0) {
-                            input_data.info.stat = UNIQUE_CHUNK;
-                            output_MQ->Push(input_data);
-                        } else {
-                            tool::Logging(my_name_.c_str(), "wrong chunk type in cache.\n");
-                            exit(EXIT_FAILURE);
-                        }
+                        // Non-similar in the local cache is still a valid
+                        // unique chunk for the global storage path.
+                        input_data.info.stat = UNIQUE_CHUNK;
+                        output_MQ->Push(input_data);
                     }
 
 // #ifdef EDR_BREAKDOWN
