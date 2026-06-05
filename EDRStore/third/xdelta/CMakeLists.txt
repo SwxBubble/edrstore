@@ -1,2 +1,4 @@
-aux_source_directory(. XDELTA_SRC)
-add_library(xdeltaLib ${XDELTA_SRC})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_library(xdeltaLib STATIC xdelta3.c)
+target_compile_definitions(xdeltaLib PRIVATE -DREGRESSION_TEST=0 -DXD3_DEBUG=0
+    -DSECONDARY_DJW=1 -DSECONDARY_FGK=1 -DXD3_MAIN=0)

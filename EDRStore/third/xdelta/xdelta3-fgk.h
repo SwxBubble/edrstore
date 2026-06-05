@@ -77,14 +77,14 @@ struct _fgk_node
  * list of zeros.  */
 struct _fgk_stream
 {
-  size_t alphabet_size;
-  size_t zero_freq_count;
-  size_t zero_freq_exp;
-  size_t zero_freq_rem;
-  size_t coded_depth;
+  usize_t alphabet_size;
+  usize_t zero_freq_count;
+  usize_t zero_freq_exp;
+  usize_t zero_freq_rem;
+  usize_t coded_depth;
 
-  size_t total_nodes;
-  size_t total_blocks;
+  usize_t total_nodes;
+  usize_t total_blocks;
 
   fgk_bit *coded_bits;
 
@@ -102,12 +102,12 @@ struct _fgk_stream
 /*                             Encoder                               */
 /*********************************************************************/
 
-static fgk_stream*     fgk_alloc           (xd3_stream *stream /*, size_t alphabet_size */);
+static fgk_stream*     fgk_alloc           (xd3_stream *stream /*, usize_t alphabet_size */);
 static int             fgk_init            (xd3_stream *stream,
 					    fgk_stream *h, 
 					    int is_encode);
-static size_t         fgk_encode_data     (fgk_stream *h,
-					    size_t    n);
+static usize_t         fgk_encode_data     (fgk_stream *h,
+					    usize_t    n);
 static inline fgk_bit  fgk_get_encoded_bit (fgk_stream *h);
 
 static int             xd3_encode_fgk      (xd3_stream  *stream,
@@ -122,7 +122,7 @@ static int             xd3_encode_fgk      (xd3_stream  *stream,
 
 static inline int      fgk_decode_bit      (fgk_stream *h,
 					    fgk_bit     b);
-static size_t         fgk_decode_data     (fgk_stream *h);
+static usize_t         fgk_decode_data     (fgk_stream *h);
 static void            fgk_destroy         (xd3_stream *stream,
 					    fgk_stream *h);
 
@@ -137,14 +137,14 @@ static int             xd3_decode_fgk      (xd3_stream     *stream,
 /* 			       Private                               */
 /*********************************************************************/
 
-static unsigned int fgk_find_nth_zero        (fgk_stream *h, size_t n);
-static size_t      fgk_nth_zero             (fgk_stream *h, size_t n);
-static void         fgk_update_tree          (fgk_stream *h, size_t n);
-static fgk_node*    fgk_increase_zero_weight (fgk_stream *h, size_t n);
+static unsigned int fgk_find_nth_zero        (fgk_stream *h, usize_t n);
+static usize_t      fgk_nth_zero             (fgk_stream *h, usize_t n);
+static void         fgk_update_tree          (fgk_stream *h, usize_t n);
+static fgk_node*    fgk_increase_zero_weight (fgk_stream *h, usize_t n);
 static void         fgk_eliminate_zero       (fgk_stream* h, fgk_node *node);
 static void         fgk_move_right           (fgk_stream *h, fgk_node *node);
 static void         fgk_promote              (fgk_stream *h, fgk_node *node);
-static void         fgk_init_node            (fgk_node *node, size_t i, size_t size);
+static void         fgk_init_node            (fgk_node *node, usize_t i, usize_t size);
 static fgk_block*   fgk_make_block           (fgk_stream *h, fgk_node *l);
 static void         fgk_free_block           (fgk_stream *h, fgk_block *b);
 static void         fgk_factor_remaining     (fgk_stream *h);
@@ -158,7 +158,7 @@ static inline void  fgk_swap_ptrs            (fgk_node **one, fgk_node **two);
  * given size.  returns NULL if enough memory cannot be allocated */
 static fgk_stream* fgk_alloc (xd3_stream *stream /*, int alphabet_size0 */)
 {
-  size_t alphabet_size0 = ALPHABET_SIZE;
+  usize_t alphabet_size0 = ALPHABET_SIZE;
   fgk_stream *h;
 
   if ((h = (fgk_stream*) xd3_alloc (stream, 1, sizeof (fgk_stream))) == NULL)
@@ -187,7 +187,7 @@ static fgk_stream* fgk_alloc (xd3_stream *stream /*, int alphabet_size0 */)
 
 static int fgk_init (xd3_stream *stream, fgk_stream *h, int is_encode)
 {
-  size_t ui;
+  usize_t ui;
   ssize_t si;
 
   h->root_node       = h->alphabet;
@@ -216,7 +216,7 @@ static int fgk_init (xd3_stream *stream, fgk_stream *h, int is_encode)
    * frequency node.  */
   for (si = h->alphabet_size - 1; si >= 0; si -= 1)
     {
-      fgk_init_node (h->alphabet + si, (size_t) si, h->alphabet_size);
+      fgk_init_node (h->alphabet + si, (usize_t) si, h->alphabet_size);
     }
 
   return 0;
@@ -231,7 +231,7 @@ static void fgk_swap_ptrs(fgk_node **one, fgk_node **two)
 
 /* Takes huffman transmitter h and n, the nth elt in the alphabet, and
  * returns the number of required to encode n. */
-static size_t fgk_encode_data (fgk_stream* h, size_t n)
+static usize_t fgk_encode_data (fgk_stream* h, usize_t n)
 {
   fgk_node *target_ptr = h->alphabet + n;
 
@@ -246,8 +246,8 @@ static size_t fgk_encode_data (fgk_stream* h, size_t n)
    * is not neccesary to encode these bits. */
   if (IS_ADAPTIVE && target_ptr->weight == 0)
     {
-      size_t where, shift;
-      size_t bits;
+      usize_t where, shift;
+      usize_t bits;
 
       where = fgk_find_nth_zero(h, n);
       shift = 1;
@@ -301,7 +301,7 @@ static inline fgk_bit fgk_get_encoded_bit (fgk_stream *h)
 /* This procedure updates the tree after alphabet[n] has been encoded
  * or decoded.
  */
-static void fgk_update_tree (fgk_stream *h, size_t n)
+static void fgk_update_tree (fgk_stream *h, usize_t n)
 {
   fgk_node *incr_node;
 
@@ -458,7 +458,7 @@ static void fgk_promote (fgk_stream *h, fgk_node *node)
 
 /* When an element is seen the first time this is called to remove it from the list of
  * zero weight elements and introduce a new internal node to the tree.  */
-static fgk_node* fgk_increase_zero_weight (fgk_stream *h, size_t n)
+static fgk_node* fgk_increase_zero_weight (fgk_stream *h, usize_t n)
 {
   fgk_node *this_zero, *new_internal, *zero_ptr;
 
@@ -545,7 +545,7 @@ static fgk_node* fgk_increase_zero_weight (fgk_stream *h, size_t n)
  * binary representation of the index into the remaining elements.
  * Sets a cache to the element before it so that it can be removed
  * without calling this procedure again.  */
-static unsigned int fgk_find_nth_zero (fgk_stream* h, size_t n)
+static unsigned int fgk_find_nth_zero (fgk_stream* h, usize_t n)
 {
   fgk_node *target_ptr = h->alphabet + n;
   fgk_node *head_ptr = h->remaining_zeros;
@@ -586,7 +586,7 @@ static void fgk_eliminate_zero (fgk_stream* h, fgk_node *node)
     }
 }
 
-static void fgk_init_node (fgk_node *node, size_t i, size_t size)
+static void fgk_init_node (fgk_node *node, usize_t i, usize_t size)
 {
   if (i < size - 1)
     {
@@ -666,7 +666,7 @@ static inline int fgk_decode_bit (fgk_stream* h, fgk_bit b)
 
   if (IS_ADAPTIVE && h->decode_ptr->weight == 0)
     {
-      size_t bitsreq;
+      usize_t bitsreq;
 
       if (h->zero_freq_rem == 0)
 	{
@@ -711,7 +711,7 @@ static inline int fgk_decode_bit (fgk_stream* h, fgk_bit b)
     }
 }
 
-static size_t fgk_nth_zero (fgk_stream* h, size_t n)
+static usize_t fgk_nth_zero (fgk_stream* h, usize_t n)
 {
   fgk_node *ret = h->remaining_zeros;
 
@@ -724,20 +724,20 @@ static size_t fgk_nth_zero (fgk_stream* h, size_t n)
       ret = ret->right_child;
     }
 
-  return (size_t)(ret - h->alphabet);
+  return (usize_t)(ret - h->alphabet);
 }
 
 /* once fgk_decode_bit returns 1, this retrieves an index into the
  * alphabet otherwise this returns 0, indicating more bits are
  * required.
  */
-static size_t fgk_decode_data (fgk_stream* h)
+static usize_t fgk_decode_data (fgk_stream* h)
 {
-  size_t elt = (size_t)(h->decode_ptr - h->alphabet);
+  usize_t elt = (usize_t)(h->decode_ptr - h->alphabet);
 
   if (IS_ADAPTIVE && h->decode_ptr->weight == 0) {
-    size_t i = 0;
-    size_t n = 0;
+    usize_t i = 0;
+    usize_t n = 0;
 
     if (h->coded_depth > 0) 
       {
@@ -795,7 +795,7 @@ xd3_encode_fgk (xd3_stream *stream, fgk_stream *sec_stream, xd3_output *input, x
 
       while (inp < inp_max)
 	{
-	  size_t bits = fgk_encode_data (sec_stream, *inp++);
+	  usize_t bits = fgk_encode_data (sec_stream, *inp++);
 
 	  while (bits--)
 	    {

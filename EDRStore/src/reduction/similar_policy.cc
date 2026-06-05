@@ -18,20 +18,19 @@ bool CmpPair(pair<string, uint32_t>& a,
 
 struct CDFECandidateScore {
     string base_fp;
-    uint32_t matched = 0;
-    uint32_t aligned = 0;
-    float pos_error = 0;
+    uint64_t base_order = UINT64_MAX;
+    unordered_set<uint16_t> matched_query_subblocks;
+    unordered_set<uint16_t> matched_base_subblocks;
+    unordered_set<uint16_t> aligned_query_subblocks;
+    float jaccard_proxy = 0;
 };
 
 bool CmpCDFECandidate(const CDFECandidateScore& a,
     const CDFECandidateScore& b) {
-    if (a.aligned != b.aligned) {
-        return a.aligned > b.aligned;
+    if (a.jaccard_proxy != b.jaccard_proxy) {
+        return a.jaccard_proxy > b.jaccard_proxy;
     }
-    if (a.matched != b.matched) {
-        return a.matched > b.matched;
-    }
-    return a.pos_error < b.pos_error;
+    return a.base_order < b.base_order;
 }
 
 /**
@@ -74,35 +73,42 @@ bool SimilarPolicy::FindBaseChunkByCDFE(ChunkInfo_t* info) {
             auto& score = candidate_map[posting.base_fp];
             if (score.base_fp.empty()) {
                 score.base_fp = posting.base_fp;
+                score.base_order = posting.base_order;
             }
-            score.matched++;
-            if (posting.subblock_rank == qf.subblock_rank) {
-                score.aligned++;
+            score.matched_query_subblocks.insert(qf.subblock_rank);
+            score.matched_base_subblocks.insert(posting.subblock_rank);
+            if (fabs(posting.norm_pos - qf.norm_pos) <= cdfe_pos_tolerance_) {
+                score.aligned_query_subblocks.insert(qf.subblock_rank);
             }
-            score.pos_error += fabs(posting.norm_pos - qf.norm_pos);
         }
     }
 
     vector<CDFECandidateScore> candidates;
     for (auto& it : candidate_map) {
         CDFECandidateScore& score = it.second;
+        uint32_t matched_query_subblocks =
+            static_cast<uint32_t>(score.matched_query_subblocks.size());
+        uint32_t matched_base_subblocks =
+            static_cast<uint32_t>(score.matched_base_subblocks.size());
+        uint32_t aligned_subblocks =
+            static_cast<uint32_t>(score.aligned_query_subblocks.size());
         uint32_t base_subblock_count = query_subblock_count;
         auto cnt_ret = cdfe_base_subblock_count_.find(score.base_fp);
         if (cnt_ret != cdfe_base_subblock_count_.end()) {
             base_subblock_count = cnt_ret->second;
         }
 
-        uint32_t denom = query_subblock_count + base_subblock_count -
-            min(query_subblock_count, score.matched);
-        float jaccard_proxy = denom == 0 ? 0 :
-            static_cast<float>(score.matched) / static_cast<float>(denom);
-        float avg_pos_error = score.matched == 0 ? 1 :
-            score.pos_error / static_cast<float>(score.matched);
+        uint32_t intersection_proxy = min(matched_query_subblocks,
+            matched_base_subblocks);
+        uint32_t union_proxy = query_subblock_count + base_subblock_count -
+            intersection_proxy;
+        score.jaccard_proxy = union_proxy == 0 ? 0 :
+            static_cast<float>(intersection_proxy) /
+            static_cast<float>(union_proxy);
 
-        if (score.matched >= cdfe_min_matched_subblocks_ &&
-            score.aligned >= cdfe_min_aligned_subblocks_ &&
-            jaccard_proxy >= cdfe_min_jaccard_proxy_ &&
-            avg_pos_error <= cdfe_pos_tolerance_) {
+        if (matched_query_subblocks >= cdfe_min_matched_subblocks_ &&
+            aligned_subblocks >= cdfe_min_aligned_subblocks_ &&
+            score.jaccard_proxy >= cdfe_min_jaccard_proxy_) {
             candidates.push_back(score);
         }
     }
@@ -265,12 +271,25 @@ void SimilarPolicy::UpdateFeatureIndex(AbsDatabase* feature_2_fp_db,
 void SimilarPolicy::UpdateCDFEIndex(CDFEFeature_t* cdfe_features,
     uint32_t cdfe_feature_num, string& base_fp) {
     uint32_t subblock_count = cdfe_feature_num;
+    uint64_t base_order = next_cdfe_base_order_;
+    auto order_ret = cdfe_base_order_.find(base_fp);
+    if (order_ret != cdfe_base_order_.end()) {
+        base_order = order_ret->second;
+    } else {
+        cdfe_base_order_[base_fp] = base_order;
+        next_cdfe_base_order_++;
+    }
     for (uint32_t i = 0; i < cdfe_feature_num; i++) {
         subblock_count = max(subblock_count,
             static_cast<uint32_t>(cdfe_features[i].subblock_rank) + 1);
         auto& posting_list = cdfe_index_[cdfe_features[i].value];
-        posting_list.push_back({base_fp, cdfe_features[i].subblock_rank,
-            cdfe_features[i].norm_pos});
+        posting_list.push_back({base_fp, base_order,
+            cdfe_features[i].subblock_rank, cdfe_features[i].norm_pos});
+        if (posting_list.size() > cdfe_hot_posting_limit_) {
+            posting_list.erase(posting_list.begin(),
+                posting_list.begin() + (posting_list.size() -
+                    cdfe_hot_posting_limit_));
+        }
     }
     cdfe_base_subblock_count_[base_fp] = subblock_count;
 }

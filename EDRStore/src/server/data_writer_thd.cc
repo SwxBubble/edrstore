@@ -11,6 +11,21 @@
 
 #include "../../include/server/data_writer_thd.h"
 
+namespace {
+
+string FingerprintPrefix(const uint8_t* fp) {
+    static const char hex[] = "0123456789abcdef";
+    string out;
+    out.reserve(16);
+    for (uint32_t i = 0; i < 8; i++) {
+        out.push_back(hex[(fp[i] >> 4) & 0xf]);
+        out.push_back(hex[fp[i] & 0xf]);
+    }
+    return out;
+}
+
+}
+
 /**
  * @brief Construct a new DataWriterThd object
  * 
@@ -141,6 +156,8 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     uint32_t best_delta_chunk_size = UINT32_MAX;
     uint8_t best_base_fp[CHUNK_HASH_SIZE];
     bool found_good_delta = false;
+    uint32_t best_rank = UINT32_MAX;
+    vector<pair<string, uint32_t>> candidate_delta_debug;
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_stime, NULL);
@@ -165,19 +182,65 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         if (!delta_comp_->TryDeltaEncode(base_chunk, base_chunk_size,
             input_chunk->data, input_chunk->info.size, delta_chunk,
             &delta_chunk_size)) {
+            candidate_delta_debug.push_back({
+                FingerprintPrefix(input_chunk->info.cdfe_candidate_base_fp[i]),
+                UINT32_MAX
+            });
             continue;
         }
+        candidate_delta_debug.push_back({
+            FingerprintPrefix(input_chunk->info.cdfe_candidate_base_fp[i]),
+            delta_chunk_size
+        });
 
         if (delta_chunk_size < best_delta_chunk_size) {
             best_delta_chunk_size = delta_chunk_size;
+            best_rank = i;
             memcpy(best_delta_chunk, delta_chunk, delta_chunk_size);
             memcpy(best_base_fp, input_chunk->info.cdfe_candidate_base_fp[i],
                 CHUNK_HASH_SIZE);
         }
     }
 
-    if (best_delta_chunk_size < input_chunk->info.size * 0.2) {
+    if (best_delta_chunk_size < input_chunk->info.size) {
         found_good_delta = true;
+    }
+
+    static ofstream cdfe_delta_debug_log("edr_cdfe_delta_debug.log",
+        ios_base::out);
+    if (cdfe_delta_debug_log.is_open()) {
+        cdfe_delta_debug_log << "[EDR CDFE delta debug]"
+            << " chunk_len=" << input_chunk->info.size
+            << " candidate_count=" << candidate_num
+            << " best_rank=";
+        if (best_rank == UINT32_MAX) {
+            cdfe_delta_debug_log << -1;
+        } else {
+            cdfe_delta_debug_log << best_rank;
+        }
+        cdfe_delta_debug_log << " best_delta_size=";
+        if (best_delta_chunk_size == UINT32_MAX) {
+            cdfe_delta_debug_log << "INVALID";
+        } else {
+            cdfe_delta_debug_log << best_delta_chunk_size
+                << " best_delta_ratio="
+                << static_cast<double>(best_delta_chunk_size) /
+                    static_cast<double>(input_chunk->info.size);
+        }
+        cdfe_delta_debug_log << " fallback_to_base="
+            << (found_good_delta ? 0 : 1) << " | ";
+        for (uint32_t i = 0; i < candidate_delta_debug.size(); i++) {
+            cdfe_delta_debug_log << "rank" << i
+                << "(base_fp=" << candidate_delta_debug[i].first
+                << ", delta_size=";
+            if (candidate_delta_debug[i].second == UINT32_MAX) {
+                cdfe_delta_debug_log << "INVALID";
+            } else {
+                cdfe_delta_debug_log << candidate_delta_debug[i].second;
+            }
+            cdfe_delta_debug_log << ") ";
+        }
+        cdfe_delta_debug_log << endl;
     }
 
     if (!found_good_delta) {

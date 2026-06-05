@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libCHUNKER_LIB.a CMakeFiles/CHUNKER_LIB.dir/abs_chunker.cc.o CMakeFiles/CHUNKER_LIB.dir/cdfe_util.cc.o CMakeFiles/CHUNKER_LIB.dir/fastcdc_chunker.cc.o CMakeFiles/CHUNKER_LIB.dir/finesse_util.cc.o CMakeFiles/CHUNKER_LIB.dir/fix_chunker.cc.o CMakeFiles/CHUNKER_LIB.dir/rabin_poly.cc.o
+/usr/bin/ranlib ../../../lib/libCHUNKER_LIB.a

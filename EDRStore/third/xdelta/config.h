@@ -10,11 +10,11 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #define HAVE_INTTYPES_H 1
 
-/* Define to 1 if you have the `lzma' library (-llzma). */
-#define HAVE_LIBLZMA 1
+// /* Define to 1 if you have the `lzma' library (-llzma). */
+// #define HAVE_LIBLZMA 0
 
-/* Define to 1 if you have the <lzma.h> header file. */
-#define HAVE_LZMA_H 1
+// /* Define to 1 if you have the <lzma.h> header file. */
+// #define HAVE_LZMA_H 0
 
 /* Define to 1 if you have the <memory.h> header file. */
 #define HAVE_MEMORY_H 1
@@ -40,6 +40,9 @@
 /* Define to 1 if you have the <unistd.h> header file. */
 #define HAVE_UNISTD_H 1
 
+/* The size of `size_t', as computed by sizeof. */
+#define SIZEOF_SIZE_T 8
+
 /* Define to the sub-directory where libtool stores uninstalled libraries. */
 #define LT_OBJDIR ".libs/"
 
@@ -60,9 +63,6 @@
 
 /* Define to the version of this package. */
 #define PACKAGE_VERSION "3.1.1"
-
-/* The size of `size_t', as computed by sizeof. */
-#define SIZEOF_SIZE_T 8
 
 /* The size of `unsigned int', as computed by sizeof. */
 #define SIZEOF_UNSIGNED_INT 4

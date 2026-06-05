@@ -26,11 +26,11 @@ static inline int xd3_decode_bits (xd3_stream     *stream,
 				   bit_state      *bits,
 				   const uint8_t **input,
 				   const uint8_t  *input_max,
-				   size_t         nbits,
-				   size_t        *valuep)
+				   usize_t         nbits,
+				   usize_t        *valuep)
 {
-  size_t value = 0;
-  size_t vmask = 1 << nbits;
+  usize_t value = 0;
+  usize_t vmask = 1 << nbits;
 
   if (bits->cur_mask == 0x100) { goto next_byte; }
 
@@ -119,7 +119,7 @@ xd3_decode_secondary (xd3_stream      *stream,
 		      xd3_desect      *sect,
 		      xd3_sec_stream **sec_streamp)
 {
-  size_t dec_size;
+  usize_t dec_size;
   uint8_t *out_used;
   int ret;
 
@@ -175,7 +175,7 @@ xd3_decode_secondary (xd3_stream      *stream,
 static inline int xd3_encode_bit (xd3_stream      *stream,
 				  xd3_output     **output,
 				  bit_state       *bits,
-				  size_t          bit)
+				  usize_t          bit)
 {
   int ret;
 
@@ -214,14 +214,14 @@ static inline int xd3_flush_bits (xd3_stream      *stream,
 static inline int xd3_encode_bits (xd3_stream      *stream,
 				   xd3_output     **output,
 				   bit_state       *bits,
-				   size_t           nbits,
-				   size_t           value)
+				   usize_t           nbits,
+				   usize_t           value)
 {
   int ret;
-  size_t mask = 1 << nbits;
+  usize_t mask = 1 << nbits;
 
   XD3_ASSERT (nbits > 0);
-  XD3_ASSERT (nbits < sizeof (size_t) * 8);
+  XD3_ASSERT (nbits < sizeof (usize_t) * 8);
   XD3_ASSERT (value < mask);
 
   do
@@ -251,8 +251,8 @@ xd3_encode_secondary (xd3_stream      *stream,
   xd3_output     *tmp_head;
   xd3_output     *tmp_tail;
 
-  size_t comp_size;
-  size_t orig_size;
+  usize_t comp_size;
+  usize_t orig_size;
 
   int ret;
 

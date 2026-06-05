@@ -20,6 +20,14 @@ TwoPhaseEnc::TwoPhaseEnc() {
     crypto_util_ecb_ = new CryptoUtil(AES_256_ECB, SHA_256);
     memset(iv_, 0, CRYPTO_BLOCK_SIZE);
     cipher_ctx_ = EVP_CIPHER_CTX_new();
+#ifdef EDRSTORE_PLAIN_MODE
+    static bool plain_mode_notice = false;
+    if (!plain_mode_notice) {
+        tool::Logging(my_name_.c_str(),
+            "EDRSTORE_PLAIN_MODE is ON: two-phase encryption is bypassed.\n");
+        plain_mode_notice = true;
+    }
+#endif
 }
 
 /**
@@ -43,6 +51,11 @@ TwoPhaseEnc::~TwoPhaseEnc() {
  */
 uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size, uint8_t* key,
     uint8_t* enc_chunk) {
+#ifdef EDRSTORE_PLAIN_MODE
+    (void)key;
+    memcpy(enc_chunk, plain_chunk, size);
+    return size;
+#else
     uint8_t tmp_cipher[ENC_MAX_CHUNK_SIZE];
     uint32_t cipher_size = 0;
 
@@ -51,6 +64,7 @@ uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size, uint
     cipher_size = crypto_util_ecb_->EncryptWithKeyIV(cipher_ctx_, tmp_cipher, cipher_size, key,
         iv_, enc_chunk);
     return cipher_size;
+#endif
 }
 
 /**
@@ -64,6 +78,11 @@ uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size, uint
  */
 uint32_t TwoPhaseEnc::TwoPhaseDecChunk(uint8_t* enc_chunk, uint32_t size, uint8_t* key, 
     uint8_t* plain_chunk) {
+#ifdef EDRSTORE_PLAIN_MODE
+    (void)key;
+    memcpy(plain_chunk, enc_chunk, size);
+    return size;
+#else
     uint8_t tmp_cipher[ENC_MAX_CHUNK_SIZE];
     uint32_t cipher_size = 0;
 
@@ -72,4 +91,5 @@ uint32_t TwoPhaseEnc::TwoPhaseDecChunk(uint8_t* enc_chunk, uint32_t size, uint8_
     cipher_size = crypto_util_ctr_->DecryptWithKeyIV(cipher_ctx_, tmp_cipher, cipher_size, key,
         iv_, plain_chunk);
     return cipher_size;
+#endif
 }

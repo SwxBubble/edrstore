@@ -112,9 +112,9 @@ struct _djw_heapen
 
 struct _djw_prefix
 {
-  size_t   scount;
+  usize_t   scount;
   uint8_t *symbol;
-  size_t   mcount;
+  usize_t   mcount;
   uint8_t *mtfsym;
   uint8_t *repcnt;
 };
@@ -253,10 +253,10 @@ heap_less (const djw_heapen *a, const djw_heapen *b)
 }
 
 static inline void
-heap_insert (size_t *heap, const djw_heapen *ents, size_t p, const size_t e)
+heap_insert (usize_t *heap, const djw_heapen *ents, usize_t p, const usize_t e)
 {
   /* Insert ents[e] into next slot heap[p] */
-  size_t pp = p/2; /* P's parent */
+  usize_t pp = p/2; /* P's parent */
 
   while (heap_less (& ents[e], & ents[heap[pp]]))
     {
@@ -269,10 +269,10 @@ heap_insert (size_t *heap, const djw_heapen *ents, size_t p, const size_t e)
 }
 
 static inline djw_heapen*
-heap_extract (size_t *heap, const djw_heapen *ents, size_t heap_last)
+heap_extract (usize_t *heap, const djw_heapen *ents, usize_t heap_last)
 {
-  size_t smallest = heap[1];
-  size_t p, pc, t;
+  usize_t smallest = heap[1];
+  usize_t p, pc, t;
 
   /* Caller decrements heap_last, so heap_last+1 is the replacement elt. */
   heap[1] = heap[heap_last+1];
@@ -304,9 +304,9 @@ heap_extract (size_t *heap, const djw_heapen *ents, size_t heap_last)
 
 #if XD3_DEBUG
 static void
-heap_check (size_t *heap, djw_heapen *ents, size_t heap_last)
+heap_check (usize_t *heap, djw_heapen *ents, usize_t heap_last)
 {
-  size_t i;
+  usize_t i;
   for (i = 1; i <= heap_last; i += 1)
     {
       /* Heap property: child not less than parent */
@@ -321,11 +321,11 @@ heap_check (size_t *heap, djw_heapen *ents, size_t heap_last)
 /*                             MTF, 1/2                              */
 /*********************************************************************/
 
-static inline size_t
-djw_update_mtf (uint8_t *mtf, size_t mtf_i)
+static inline usize_t
+djw_update_mtf (uint8_t *mtf, usize_t mtf_i)
 {
   int k;
-  size_t sym = mtf[mtf_i];
+  usize_t sym = mtf[mtf_i];
 
   for (k = mtf_i; k != 0; k -= 1) { mtf[k] = mtf[k-1]; }
 
@@ -334,7 +334,7 @@ djw_update_mtf (uint8_t *mtf, size_t mtf_i)
 }
 
 static inline void
-djw_update_1_2 (int *mtf_run, size_t *mtf_i,
+djw_update_1_2 (int *mtf_run, usize_t *mtf_i,
 		uint8_t *mtfsym, djw_weight *freq)
 {
   uint8_t code;
@@ -358,7 +358,7 @@ djw_update_1_2 (int *mtf_run, size_t *mtf_i,
 static void
 djw_init_clen_mtf_1_2 (uint8_t *clmtf)
 {
-  size_t i, cl_i = 0;
+  usize_t i, cl_i = 0;
 
   clmtf[cl_i++] = 0;
   for (i = 0; i < DJW_BASIC_CODES; i += 1)
@@ -375,8 +375,8 @@ djw_init_clen_mtf_1_2 (uint8_t *clmtf)
 /*                           PREFIX CODES                            */
 /*********************************************************************/
 #if XD3_ENCODER
-static size_t
-djw_build_prefix (const djw_weight *freq, uint8_t *clen, size_t asize, size_t maxlen)
+static usize_t
+djw_build_prefix (const djw_weight *freq, uint8_t *clen, usize_t asize, usize_t maxlen)
 {
   /* Heap with 0th entry unused, prefix tree with up to ALPHABET_SIZE-1
    * internal nodes, never more than ALPHABET_SIZE entries actually in the
@@ -384,15 +384,15 @@ djw_build_prefix (const djw_weight *freq, uint8_t *clen, size_t asize, size_t ma
    * ALPHABET_SIZE entries are the actual symbols, next ALPHABET_SIZE-1 are
    * internal nodes. */
   djw_heapen ents[ALPHABET_SIZE * 2];
-  size_t heap[ALPHABET_SIZE + 1];
+  usize_t heap[ALPHABET_SIZE + 1];
 
-  size_t heap_last; /* Index of the last _valid_ heap entry. */
-  size_t ents_size; /* Number of entries, including 0th fake entry */
-  size_t  overflow;  /* Number of code lengths that overflow */
-  size_t total_bits;
-  size_t i;
+  usize_t heap_last; /* Index of the last _valid_ heap entry. */
+  usize_t ents_size; /* Number of entries, including 0th fake entry */
+  usize_t  overflow;  /* Number of code lengths that overflow */
+  usize_t total_bits;
+  usize_t i;
 
-  IF_DEBUG (size_t first_bits = 0);
+  IF_DEBUG (usize_t first_bits = 0);
 
   /* Insert real symbol frequences. */
   for (i = 0; i < asize; i += 1)
@@ -438,7 +438,7 @@ djw_build_prefix (const djw_weight *freq, uint8_t *clen, size_t asize, size_t ma
   if (heap_last == 1)
     {
       /* Pick either the first or last symbol. */
-      size_t s = freq[0] ? asize-1 : 0;
+      usize_t s = freq[0] ? asize-1 : 0;
       ents[s+1].freq = 1;
       goto again;
     }
@@ -463,11 +463,11 @@ djw_build_prefix (const djw_weight *freq, uint8_t *clen, size_t asize, size_t ma
   /* Now compute prefix code lengths, counting parents. */
   for (i = 1; i < asize+1; i += 1)
     {
-      size_t b = 0;
+      usize_t b = 0;
 
       if (ents[i].freq != 0)
 	{
-	  size_t p = i;
+	  usize_t p = i;
 
 	  while ((p = ents[p].parent) != 0) { b += 1; }
 
@@ -504,12 +504,12 @@ djw_build_prefix (const djw_weight *freq, uint8_t *clen, size_t asize, size_t ma
 }
 
 static void
-djw_build_codes (size_t *codes, const uint8_t *clen, size_t asize, size_t abs_max)
+djw_build_codes (usize_t *codes, const uint8_t *clen, usize_t asize, usize_t abs_max)
 {
-  size_t i, l;
-  size_t min_clen = DJW_MAX_CODELEN;
-  size_t max_clen = 0;
-  size_t code = 0;
+  usize_t i, l;
+  usize_t min_clen = DJW_MAX_CODELEN;
+  usize_t max_clen = 0;
+  usize_t code = 0;
 
   /* Find the min and max code length */
   for (i = 0; i < asize; i += 1)
@@ -519,7 +519,7 @@ djw_build_codes (size_t *codes, const uint8_t *clen, size_t asize, size_t abs_ma
 	  min_clen = clen[i];
 	}
 
-      max_clen = xd3_max (max_clen, (size_t) clen[i]);
+      max_clen = xd3_max (max_clen, (usize_t) clen[i]);
     }
 
   XD3_ASSERT (max_clen <= abs_max);
@@ -553,12 +553,12 @@ static void
 djw_compute_mtf_1_2 (djw_prefix  *prefix,
 		     uint8_t     *mtf,
 		     djw_weight  *freq_out,
-		     size_t      nsym)
+		     usize_t      nsym)
 {
   size_t i, j, k;
-  size_t sym;
-  size_t size = prefix->scount;
-  size_t mtf_i = 0;
+  usize_t sym;
+  usize_t size = prefix->scount;
+  usize_t mtf_i = 0;
   int mtf_run = 0;
 
   /* This +2 is for the RUN_0, RUN_1 codes */
@@ -603,11 +603,11 @@ djw_compute_mtf_1_2 (djw_prefix  *prefix,
 }
 
 /* Counts character frequencies of the input buffer, returns the size. */
-static size_t
+static usize_t
 djw_count_freqs (djw_weight *freq, xd3_output *input)
 {
   xd3_output *in;
-  size_t size = 0;
+  usize_t size = 0;
 
   memset (freq, 0, sizeof (freq[0]) * ALPHABET_SIZE);
 
@@ -637,11 +637,11 @@ djw_count_freqs (djw_weight *freq, xd3_output *input)
 }
 
 static void
-djw_compute_multi_prefix (size_t     groups,
+djw_compute_multi_prefix (usize_t     groups,
 			  uint8_t     clen[DJW_MAX_GROUPS][ALPHABET_SIZE],
 			  djw_prefix *prefix)
 {
-  size_t gp, i;
+  usize_t gp, i;
       
   prefix->scount = ALPHABET_SIZE;
   memcpy (prefix->symbol, clen[0], ALPHABET_SIZE);
@@ -679,10 +679,10 @@ djw_encode_prefix (xd3_stream   *stream,
 {
   int ret;
   size_t i;
-  size_t num_to_encode;
+  usize_t num_to_encode;
   djw_weight clfreq[DJW_TOTAL_CODES];
   uint8_t    clclen[DJW_TOTAL_CODES];
-  size_t    clcode[DJW_TOTAL_CODES];
+  usize_t    clcode[DJW_TOTAL_CODES];
 
   /* Move-to-front encode prefix symbols, count frequencies */
   djw_compute_prefix_1_2 (prefix, clfreq);
@@ -719,9 +719,9 @@ djw_encode_prefix (xd3_stream   *stream,
   /* Encode: CLEN code lengths */
   for (i = 0; i < prefix->mcount; i += 1)
     {
-      size_t mtf_sym = prefix->mtfsym[i];
-      size_t bits    = clclen[mtf_sym];
-      size_t code    = clcode[mtf_sym];
+      usize_t mtf_sym = prefix->mtfsym[i];
+      usize_t bits    = clclen[mtf_sym];
+      usize_t code    = clcode[mtf_sym];
 
       if ((ret = xd3_encode_bits (stream, output, bstate, bits, code)))
 	{
@@ -734,11 +734,11 @@ djw_encode_prefix (xd3_stream   *stream,
 
 static void
 djw_compute_selector_1_2 (djw_prefix *prefix,
-			  size_t     groups,
+			  usize_t     groups,
 			  djw_weight *gbest_freq)
 {
   uint8_t grmtf[DJW_MAX_GROUPS];
-  size_t i;
+  usize_t i;
 
   for (i = 0; i < groups; i += 1) { grmtf[i] = i; }
 
@@ -748,14 +748,14 @@ djw_compute_selector_1_2 (djw_prefix *prefix,
 static int
 xd3_encode_howmany_groups (xd3_stream *stream,
 			   xd3_sec_cfg *cfg,
-			   size_t input_size,
-			   size_t *ret_groups,
-			   size_t *ret_sector_size)
+			   usize_t input_size,
+			   usize_t *ret_groups,
+			   usize_t *ret_sector_size)
 {
-  size_t cfg_groups = 0;
-  size_t cfg_sector_size = 0;
-  size_t sugg_groups = 0;
-  size_t sugg_sector_size = 0;
+  usize_t cfg_groups = 0;
+  usize_t cfg_sector_size = 0;
+  usize_t sugg_groups = 0;
+  usize_t sugg_sector_size = 0;
 
   if (cfg->ngroups != 0)
     {
@@ -860,13 +860,13 @@ xd3_encode_huff (xd3_stream   *stream,
 		 xd3_sec_cfg  *cfg)
 {
   int         ret;
-  size_t     groups, sector_size;
+  usize_t     groups, sector_size;
   bit_state   bstate = BIT_STATE_ENCODE_INIT;
   xd3_output *in;
-  size_t     output_bits;
-  size_t     input_bits;
-  size_t     input_bytes;
-  size_t     initial_offset = output->next;
+  usize_t     output_bits;
+  usize_t     input_bits;
+  usize_t     input_bytes;
+  usize_t     initial_offset = output->next;
   djw_weight  real_freq[ALPHABET_SIZE];
   uint8_t    *gbest = NULL;
   uint8_t    *gbest_mtf = NULL;
@@ -898,7 +898,7 @@ xd3_encode_huff (xd3_stream   *stream,
   if (groups == 1)
     {
       /* Single Huffman group. */
-      size_t    code[ALPHABET_SIZE]; /* Codes */
+      usize_t    code[ALPHABET_SIZE]; /* Codes */
       uint8_t    clen[ALPHABET_SIZE];
       uint8_t    prefix_mtfsym[ALPHABET_SIZE];
       djw_prefix prefix;
@@ -936,8 +936,8 @@ xd3_encode_huff (xd3_stream   *stream,
 
 	  do
 	    {
-	      size_t sym  = *p++;
-	      size_t bits = clen[sym];
+	      usize_t sym  = *p++;
+	      usize_t bits = clen[sym];
 
 	      IF_DEBUG (output_bits -= bits);
 
@@ -958,19 +958,19 @@ xd3_encode_huff (xd3_stream   *stream,
       djw_weight evolve_freq[DJW_MAX_GROUPS][ALPHABET_SIZE];
       uint8_t evolve_clen[DJW_MAX_GROUPS][ALPHABET_SIZE];
       djw_weight left = input_bytes;
-      size_t gp;
-      size_t niter = 0;
-      size_t select_bits;
-      size_t sym1 = 0, sym2 = 0, s;
-      size_t gcost[DJW_MAX_GROUPS];
-      size_t gbest_code[DJW_MAX_GROUPS+2];
+      usize_t gp;
+      usize_t niter = 0;
+      usize_t select_bits;
+      usize_t sym1 = 0, sym2 = 0, s;
+      usize_t gcost[DJW_MAX_GROUPS];
+      usize_t gbest_code[DJW_MAX_GROUPS+2];
       uint8_t gbest_clen[DJW_MAX_GROUPS+2];
-      size_t  gbest_max = 1 + (input_bytes - 1) / sector_size;
-      size_t best_bits = 0;
-      size_t  gbest_no;
-      size_t  gpcnt;
+      usize_t  gbest_max = 1 + (input_bytes - 1) / sector_size;
+      usize_t best_bits = 0;
+      usize_t  gbest_no;
+      usize_t  gpcnt;
       const uint8_t *p;
-      IF_DEBUG2 (size_t gcount[DJW_MAX_GROUPS]);
+      IF_DEBUG2 (usize_t gcount[DJW_MAX_GROUPS]);
 
       /* Encode: sector size (5 bits) */
       if ((ret = xd3_encode_bits (stream, & output, & bstate,
@@ -1007,7 +1007,7 @@ xd3_encode_huff (xd3_stream   *stream,
 	  djw_weight sum  = 0;
 	  djw_weight goal = left / (groups - gp);
 
-	  IF_DEBUG2 (size_t nz = 0);
+	  IF_DEBUG2 (usize_t nz = 0);
 
 	  /* Due to the single-code granularity of this distribution, it may
 	   * be that we can't generate a distribution for each group.  In that
@@ -1060,8 +1060,8 @@ xd3_encode_huff (xd3_stream   *stream,
 	{
 	  const uint8_t *p0  = p;
 	  xd3_output    *in0 = in;
-	  size_t best   = 0;
-	  size_t winner = 0;
+	  usize_t best   = 0;
+	  usize_t winner = 0;
 
 	  /* Select best group for each sector, update evolve_freq. */
 	  memset (gcost, 0, sizeof (gcost[0]) * groups);
@@ -1077,7 +1077,7 @@ xd3_encode_huff (xd3_stream   *stream,
 
 	      /* Check end-of-input-page. */
 #             define GP_PAGE()                \
-	      if ((size_t)(++p - in->base) == in->next) \
+	      if ((usize_t)(++p - in->base) == in->next) \
 		{                             \
 		  in = in->next_page;         \
 		  if (in == NULL) { break; }  \
@@ -1152,7 +1152,7 @@ xd3_encode_huff (xd3_stream   *stream,
 	   * for the (output_bits==0) assert after all bits are output. */
 	  if (any_zeros)
 	    {
-	      IF_DEBUG2 (size_t save_total = output_bits);
+	      IF_DEBUG2 (usize_t save_total = output_bits);
 
 	      for (i = 0; i < ALPHABET_SIZE; i += 1)
 		{
@@ -1214,7 +1214,7 @@ xd3_encode_huff (xd3_stream   *stream,
 	/* DJW_MAX_GROUPS +2 is for RUN_0, RUN_1 symbols. */
 	djw_weight gbest_freq[DJW_MAX_GROUPS+2];
 	djw_prefix gbest_prefix;
-	size_t i;
+	usize_t i;
 
 	gbest_prefix.scount = gbest_no;
 	gbest_prefix.symbol = gbest;
@@ -1237,9 +1237,9 @@ xd3_encode_huff (xd3_stream   *stream,
 
 	for (i = 0; i < gbest_prefix.mcount; i += 1)
 	  {
-	    size_t gp_mtf      = gbest_mtf[i];
-	    size_t gp_sel_bits = gbest_clen[gp_mtf];
-	    size_t gp_sel_code = gbest_code[gp_mtf];
+	    usize_t gp_mtf      = gbest_mtf[i];
+	    usize_t gp_sel_bits = gbest_clen[gp_mtf];
+	    usize_t gp_sel_code = gbest_code[gp_mtf];
 
 	    XD3_ASSERT (gp_mtf < groups+1);
 
@@ -1264,8 +1264,8 @@ xd3_encode_huff (xd3_stream   *stream,
 
       /* Encode: data */
       {
-	size_t evolve_code[DJW_MAX_GROUPS][ALPHABET_SIZE];
-	size_t sector = 0;
+	usize_t evolve_code[DJW_MAX_GROUPS][ALPHABET_SIZE];
+	usize_t sector = 0;
 
 	/* Build code tables for each group. */
 	for (gp = 0; gp < groups; gp += 1)
@@ -1281,8 +1281,8 @@ xd3_encode_huff (xd3_stream   *stream,
 	do
 	  {
 	    /* For each sector. */
-	    size_t   gp_best  = gbest[sector];
-	    size_t *gp_codes = evolve_code[gp_best];
+	    usize_t   gp_best  = gbest[sector];
+	    usize_t *gp_codes = evolve_code[gp_best];
 	    uint8_t *gp_clens = evolve_clen[gp_best];
 
 	    XD3_ASSERT (sector < gbest_no);
@@ -1292,9 +1292,9 @@ xd3_encode_huff (xd3_stream   *stream,
 	    /* Encode the sector data. */
 	    for (gpcnt = 0; gpcnt < sector_size; gpcnt += 1)
 	      {
-		size_t sym  = *p;
-		size_t bits = gp_clens[sym];
-		size_t code = gp_codes[sym];
+		usize_t sym  = *p;
+		usize_t bits = gp_clens[sym];
+		usize_t code = gp_codes[sym];
 
 		IF_DEBUG (output_bits -= bits);
 
@@ -1337,21 +1337,21 @@ xd3_encode_huff (xd3_stream   *stream,
 
 static void
 djw_build_decoder (xd3_stream    *stream,
-		   size_t        asize,
-		   size_t        abs_max,
+		   usize_t        asize,
+		   usize_t        abs_max,
 		   const uint8_t *clen,
 		   uint8_t       *inorder,
-		   size_t       *base,
-		   size_t       *limit,
-		   size_t       *min_clenp,
-		   size_t       *max_clenp)
+		   usize_t       *base,
+		   usize_t       *limit,
+		   usize_t       *min_clenp,
+		   usize_t       *max_clenp)
 {
-  size_t i, l;
+  usize_t i, l;
   const uint8_t *ci;
-  size_t nr_clen [DJW_TOTAL_CODES];
-  size_t tmp_base[DJW_TOTAL_CODES];
-  size_t min_clen;
-  size_t max_clen;
+  usize_t nr_clen [DJW_TOTAL_CODES];
+  usize_t tmp_base[DJW_TOTAL_CODES];
+  usize_t min_clen;
+  usize_t max_clen;
 
   /* Assumption: the two temporary arrays are large enough to hold abs_max. */
   XD3_ASSERT (abs_max <= DJW_MAX_CODELEN);
@@ -1387,7 +1387,7 @@ djw_build_decoder (xd3_stream    *stream,
   limit[min_clen]    = nr_clen[min_clen] - 1;
   for (i = min_clen + 1; i <= max_clen; i += 1)
     {
-      size_t last_limit = ((limit[i-1] + 1) << 1);
+      usize_t last_limit = ((limit[i-1] + 1) << 1);
       tmp_base[i] = tmp_base[i-1] + nr_clen[i-1];
       limit[i]    = last_limit + nr_clen[i] - 1;
       base[i]     = last_limit - tmp_base[i];
@@ -1413,15 +1413,15 @@ djw_decode_symbol (xd3_stream     *stream,
 		   const uint8_t **input,
 		   const uint8_t  *input_end,
 		   const uint8_t  *inorder,
-		   const size_t  *base,
-		   const size_t  *limit,
-		   size_t         min_clen,
-		   size_t         max_clen,
-		   size_t         *sym,
-		   size_t          max_sym)
+		   const usize_t  *base,
+		   const usize_t  *limit,
+		   usize_t         min_clen,
+		   usize_t         max_clen,
+		   usize_t         *sym,
+		   usize_t          max_sym)
 {
-  size_t code = 0;
-  size_t bits = 0;
+  usize_t code = 0;
+  usize_t bits = 0;
 
   /* OPT: Supposedly a small lookup table improves speed here... */
 
@@ -1461,7 +1461,7 @@ djw_decode_symbol (xd3_stream     *stream,
 
   if (base[bits] <= code)
     {
-      size_t offset = code - base[bits];
+      usize_t offset = code - base[bits];
 
       if (offset <= max_sym)
 	{
@@ -1482,16 +1482,16 @@ djw_decode_clclen (xd3_stream     *stream,
 		   const uint8_t **input,
 		   const uint8_t  *input_end,
 		   uint8_t        *cl_inorder,
-		   size_t        *cl_base,
-		   size_t        *cl_limit,
-		   size_t        *cl_minlen,
-		   size_t        *cl_maxlen,
+		   usize_t        *cl_base,
+		   usize_t        *cl_limit,
+		   usize_t        *cl_minlen,
+		   usize_t        *cl_maxlen,
 		   uint8_t        *cl_mtf)
 {
   int ret;
   uint8_t cl_clen[DJW_TOTAL_CODES];
-  size_t num_codes, value;
-  size_t i;
+  usize_t num_codes, value;
+  usize_t i;
 
   /* How many extra code lengths to encode. */
   if ((ret = xd3_decode_bits (stream, bstate, input,
@@ -1537,16 +1537,16 @@ djw_decode_1_2 (xd3_stream     *stream,
 		const uint8_t **input,
 		const uint8_t  *input_end,
 		const uint8_t  *inorder,
-		const size_t  *base,
-		const size_t  *limit,
-		const size_t  *minlen,
-		const size_t  *maxlen,
+		const usize_t  *base,
+		const usize_t  *limit,
+		const usize_t  *minlen,
+		const usize_t  *maxlen,
 		uint8_t        *mtfvals,
-		size_t         elts,
-		size_t         skip_offset,
+		usize_t         elts,
+		usize_t         skip_offset,
 		uint8_t        *values)
 {
-  size_t n = 0, rep = 0, mtf = 0, s = 0;
+  usize_t n = 0, rep = 0, mtf = 0, s = 0;
   int ret;
   
   while (n < elts)
@@ -1570,7 +1570,7 @@ djw_decode_1_2 (xd3_stream     *stream,
       /* Symbol following last repeat code. */
       if (mtf != 0)
 	{
-	  size_t sym = djw_update_mtf (mtfvals, mtf);
+	  usize_t sym = djw_update_mtf (mtfvals, mtf);
 	  values[n++] = sym;
 	  mtf = 0;
 	  continue;
@@ -1612,12 +1612,12 @@ djw_decode_prefix (xd3_stream     *stream,
 		   const uint8_t **input,
 		   const uint8_t  *input_end,
 		   const uint8_t  *cl_inorder,
-		   const size_t  *cl_base,
-		   const size_t  *cl_limit,
-		   const size_t  *cl_minlen,
-		   const size_t  *cl_maxlen,
+		   const usize_t  *cl_base,
+		   const usize_t  *cl_limit,
+		   const usize_t  *cl_minlen,
+		   const usize_t  *cl_maxlen,
 		   uint8_t        *cl_mtf,
-		   size_t         groups,
+		   usize_t         groups,
 		   uint8_t        *clen)
 {
   return djw_decode_1_2 (stream, bstate, input, input_end,
@@ -1638,10 +1638,10 @@ xd3_decode_huff (xd3_stream     *stream,
   uint8_t  *output = *output_pos;
   bit_state bstate = BIT_STATE_DECODE_INIT;
   uint8_t  *sel_group = NULL;
-  size_t    groups, gp;
-  size_t    output_bytes = (size_t)(output_end - output);
-  size_t    sector_size;
-  size_t    sectors;
+  usize_t    groups, gp;
+  usize_t    output_bytes = (usize_t)(output_end - output);
+  usize_t    sector_size;
+  usize_t    sectors;
   int ret;
 
   /* Invalid input. */
@@ -1685,20 +1685,20 @@ xd3_decode_huff (xd3_stream     *stream,
   /* Outer scope: per-group symbol decoder tables. */
   {
     uint8_t inorder[DJW_MAX_GROUPS][ALPHABET_SIZE];
-    size_t base   [DJW_MAX_GROUPS][DJW_TOTAL_CODES];
-    size_t limit  [DJW_MAX_GROUPS][DJW_TOTAL_CODES];
-    size_t minlen [DJW_MAX_GROUPS];
-    size_t maxlen [DJW_MAX_GROUPS];
+    usize_t base   [DJW_MAX_GROUPS][DJW_TOTAL_CODES];
+    usize_t limit  [DJW_MAX_GROUPS][DJW_TOTAL_CODES];
+    usize_t minlen [DJW_MAX_GROUPS];
+    usize_t maxlen [DJW_MAX_GROUPS];
 
     /* Nested scope: code length decoder tables. */
     {
       uint8_t clen      [DJW_MAX_GROUPS][ALPHABET_SIZE];
       uint8_t cl_inorder[DJW_TOTAL_CODES];
-      size_t cl_base   [DJW_MAX_CLCLEN+2];
-      size_t cl_limit  [DJW_MAX_CLCLEN+2];
+      usize_t cl_base   [DJW_MAX_CLCLEN+2];
+      usize_t cl_limit  [DJW_MAX_CLCLEN+2];
       uint8_t cl_mtf    [DJW_TOTAL_CODES];
-      size_t cl_minlen;
-      size_t cl_maxlen;
+      usize_t cl_minlen;
+      usize_t cl_maxlen;
 
       /* Compute the code length decoder. */
       if ((ret = djw_decode_clclen (stream, & bstate, & input, input_end,
@@ -1723,11 +1723,11 @@ xd3_decode_huff (xd3_stream     *stream,
     /* Decode: selector clens. */
     {
       uint8_t sel_inorder[DJW_MAX_GROUPS+2];
-      size_t sel_base   [DJW_MAX_GBCLEN+2];
-      size_t sel_limit  [DJW_MAX_GBCLEN+2];
+      usize_t sel_base   [DJW_MAX_GBCLEN+2];
+      usize_t sel_limit  [DJW_MAX_GBCLEN+2];
       uint8_t sel_mtf    [DJW_MAX_GROUPS+2];
-      size_t sel_minlen;
-      size_t sel_maxlen;
+      usize_t sel_minlen;
+      usize_t sel_maxlen;
 
       /* Setup group selection. */
       if (groups > 1)
@@ -1736,7 +1736,7 @@ xd3_decode_huff (xd3_stream     *stream,
 
 	  for (gp = 0; gp < groups+1; gp += 1)
 	    {
-	      size_t value;
+	      usize_t value;
 
 	      if ((ret = xd3_decode_bits (stream, & bstate, & input,
 					  input_end, DJW_GBCLEN_BITS,
@@ -1767,15 +1767,15 @@ xd3_decode_huff (xd3_stream     *stream,
       {
 	/* Initialize for (groups==1) case. */
 	uint8_t *gp_inorder = inorder[0]; 
-	size_t *gp_base    = base[0];
-	size_t *gp_limit   = limit[0];
-	size_t  gp_minlen  = minlen[0];
-	size_t  gp_maxlen  = maxlen[0];
-	size_t c;
+	usize_t *gp_base    = base[0];
+	usize_t *gp_limit   = limit[0];
+	usize_t  gp_minlen  = minlen[0];
+	usize_t  gp_maxlen  = maxlen[0];
+	usize_t c;
 
 	for (c = 0; c < sectors; c += 1)
 	  {
-	    size_t n;
+	    usize_t n;
 
 	    if (groups >= 2)
 	      {
@@ -1797,11 +1797,11 @@ xd3_decode_huff (xd3_stream     *stream,
 	      }
 	    
 	    /* Decode next sector. */
-	    n = xd3_min (sector_size, (size_t) (output_end - output));
+	    n = xd3_min (sector_size, (usize_t) (output_end - output));
 
 	    do
 	      {
-		size_t sym;
+		usize_t sym;
 
 		if ((ret = djw_decode_symbol (stream, & bstate,
 					      & input, input_end,

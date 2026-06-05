@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libNETWORK_LIB.a CMakeFiles/NETWORK_LIB.dir/ssl_conn.cc.o
+/usr/bin/ranlib ../../../lib/libNETWORK_LIB.a

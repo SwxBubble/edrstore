@@ -31,14 +31,14 @@ struct _main_blklru_list
 struct _main_blklru
 {
   uint8_t          *blk;
-  uint64_t            blkno;
-  size_t           size;
+  xoff_t            blkno;
+  usize_t           size;
   main_blklru_list  link;
 };
 
 XD3_MAKELIST(main_blklru_list,main_blklru,link);
 
-static size_t           lru_size = 0;
+static usize_t           lru_size = 0;
 static main_blklru      *lru = NULL;  /* array of lru_size elts */
 static main_blklru_list  lru_list;
 static int               do_src_fifo = 0;  /* set to avoid lru */
@@ -80,9 +80,9 @@ main_set_source (xd3_stream *stream, xd3_cmd cmd,
 		 main_file *sfile, xd3_source *source)
 {
   int ret = 0;
-  size_t i;
-  uint64_t source_size = 0;
-  size_t blksize;
+  usize_t i;
+  xoff_t source_size = 0;
+  usize_t blksize;
 
   XD3_ASSERT (lru == NULL);
   XD3_ASSERT (stream->src == NULL);
@@ -270,11 +270,11 @@ main_set_source (xd3_stream *stream, xd3_cmd cmd,
 }
 
 static int
-main_getblk_lru (xd3_source *source, uint64_t blkno,
+main_getblk_lru (xd3_source *source, xoff_t blkno,
 		 main_blklru** blrup, int *is_new)
 {
   main_blklru *blru = NULL;
-  size_t i;
+  usize_t i;
 
   (*is_new) = 0;
 
@@ -336,8 +336,8 @@ main_getblk_lru (xd3_source *source, uint64_t blkno,
 static int
 main_read_seek_source (xd3_stream *stream,
 		       xd3_source *source,
-		       uint64_t      blkno) {
-  uint64_t pos = blkno * source->blksize;
+		       xoff_t      blkno) {
+  xoff_t pos = blkno * source->blksize;
   main_file *sfile = (main_file*) source->ioh;
   main_blklru *blru;
   int is_new;
@@ -401,8 +401,8 @@ main_read_seek_source (xd3_stream *stream,
 
       while (sfile->source_position < pos)
 	{
-	  uint64_t skip_blkno;
-	  size_t skip_offset;
+	  xoff_t skip_blkno;
+	  usize_t skip_offset;
 
 	  xd3_blksize_div (sfile->source_position, source,
 			   &skip_blkno, &skip_offset);
@@ -460,10 +460,10 @@ main_read_seek_source (xd3_stream *stream,
 static int
 main_getblk_func (xd3_stream *stream,
 		  xd3_source *source,
-		  uint64_t      blkno)
+		  xoff_t      blkno)
 {
   int ret = 0;
-  uint64_t pos = blkno * source->blksize;
+  xoff_t pos = blkno * source->blksize;
   main_file *sfile = (main_file*) source->ioh;
   main_blklru *blru;
   int is_new;

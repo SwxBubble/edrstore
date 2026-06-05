@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libKM_LIB.a CMakeFiles/KM_LIB.dir/basic_km.cc.o
+/usr/bin/ranlib ../../../lib/libKM_LIB.a

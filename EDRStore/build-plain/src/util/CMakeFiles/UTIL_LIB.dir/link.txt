@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libUTIL_LIB.a CMakeFiles/UTIL_LIB.dir/compress_util.cc.o CMakeFiles/UTIL_LIB.dir/configure.cc.o CMakeFiles/UTIL_LIB.dir/crypto_util.cc.o CMakeFiles/UTIL_LIB.dir/readCache.cc.o
+/usr/bin/ranlib ../../../lib/libUTIL_LIB.a

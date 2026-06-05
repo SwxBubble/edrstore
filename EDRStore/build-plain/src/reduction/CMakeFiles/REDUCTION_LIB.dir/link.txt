@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libREDUCTION_LIB.a CMakeFiles/REDUCTION_LIB.dir/dedup_detect.cc.o CMakeFiles/REDUCTION_LIB.dir/delta_comp.cc.o CMakeFiles/REDUCTION_LIB.dir/similar_policy.cc.o
+/usr/bin/ranlib ../../../lib/libREDUCTION_LIB.a

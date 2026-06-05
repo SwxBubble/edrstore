@@ -16,11 +16,9 @@
  * 
  */
 FastCDC::FastCDC() {
-    normal_chunk_size_ = this->CalNormalSize(min_chunk_size_, avg_chunk_size_, max_chunk_size_);
-    uint32_t bits = (uint32_t) round(log2(static_cast<double>(avg_chunk_size_))); 
-    mask_s_ = GenerateFastCDCMask(bits + 1);
-    mask_l_ = GenerateFastCDCMask(bits - 1);
-    tool::Logging(my_name_.c_str(), "init FastCDC.\n");
+    stop_mask_ = static_cast<uint64_t>(avg_chunk_size_ - 1);
+    tool::Logging(my_name_.c_str(), "init FastCDC, stop mask: %lu.\n",
+        stop_mask_);
 }
 
 /**
@@ -77,39 +75,6 @@ uint32_t FastCDC::GenerateOneChunk(uint8_t* data) {
 }
 
 /**
- * @brief compute the normal size 
- * 
- * @param min the min chunk size
- * @param avg the avg chunk size
- * @param max the max chunk size
- * @return uint32_t 
- */
-uint32_t FastCDC::CalNormalSize(const uint32_t min, const uint32_t avg,
-    const uint32_t max) {
-    uint32_t off = min + tool::DivCeil(min, 2);
-    if (off > avg) {
-        off = avg;
-    } 
-    uint32_t diff = avg - off;
-    if (diff > max) {
-        return max;
-    }
-    return diff;
-}
-
-/**
- * @brief generate the mask according to the given bits
- * 
- * @param bits the number of '1' + 1
- * @return uint32_t the returned mask
- */
-uint32_t FastCDC::GenerateFastCDCMask(uint32_t bits) {
-    uint32_t tmp;
-    tmp = (1 << tool::CompareLimit(bits, 1, 31)) - 1;
-    return tmp;
-}
-
-/**
  * @brief To get the offset of chunks for a given buffer  
  * 
  * @param src the input buffer  
@@ -117,24 +82,21 @@ uint32_t FastCDC::GenerateFastCDCMask(uint32_t bits) {
  * @return uint32_t length of this chunk.
  */
 uint32_t FastCDC::CutPoint(const uint8_t* src, const uint32_t len) {
-    uint32_t n;
-    uint32_t fp = 0;
-    uint32_t i;
-    i = std::min(len, static_cast<uint32_t>(min_chunk_size_)); 
-    n = std::min(normal_chunk_size_, len);
-    for (; i < n; i++) {
-        fp = (fp >> 1) + GEAR[src[i]];
-        if (!(fp & mask_s_)) {
-            return (i + 1);
+    uint64_t fp = 0;
+    uint32_t i = 0;
+    const uint32_t min_pos = std::min(len, static_cast<uint32_t>(min_chunk_size_));
+    const uint32_t max_pos = std::min(len, static_cast<uint32_t>(max_chunk_size_));
+
+    for (; i < min_pos; i++) {
+        fp = (fp << 1) + GEAR_TABLE[src[i]];
+    }
+
+    for (; i < max_pos; i++) {
+        fp = (fp << 1) + GEAR_TABLE[src[i]];
+        if ((fp & stop_mask_) == 0) {
+            return i + 1;
         }
     }
 
-    n = std::min(static_cast<uint32_t>(max_chunk_size_), len);
-    for (; i < n; i++) {
-        fp = (fp >> 1) + GEAR[src[i]];
-        if (!(fp & mask_l_)) {
-            return (i + 1);
-        }
-    } 
-    return i;
+    return max_pos;
 }

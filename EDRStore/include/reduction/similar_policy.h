@@ -20,15 +20,18 @@ class SimilarPolicy {
         string my_name_ = "SimilarPolicy";
         struct CDFEPosting {
             string base_fp;
+            uint64_t base_order;
             uint16_t subblock_rank;
             float norm_pos;
         };
         unordered_map<uint64_t, vector<CDFEPosting>> cdfe_index_;
         unordered_map<string, uint32_t> cdfe_base_subblock_count_;
-        uint32_t cdfe_hot_posting_limit_ = 256;
-        uint32_t cdfe_min_matched_subblocks_ = 4;
-        uint32_t cdfe_min_aligned_subblocks_ = 2;
-        float cdfe_min_jaccard_proxy_ = 0.25;
+        unordered_map<string, uint64_t> cdfe_base_order_;
+        uint64_t next_cdfe_base_order_ = 0;
+        uint32_t cdfe_hot_posting_limit_ = 64;
+        uint32_t cdfe_min_matched_subblocks_ = 0;
+        uint32_t cdfe_min_aligned_subblocks_ = 0;
+        float cdfe_min_jaccard_proxy_ = 0.15;
         float cdfe_pos_tolerance_ = 0.15;
 
         bool FindBaseChunkByCDFE(ChunkInfo_t* info);

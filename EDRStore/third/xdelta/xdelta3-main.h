@@ -198,7 +198,7 @@ struct _main_extcomp
 
   const char    *ident;
   const char    *magic;
-  size_t        magic_size;
+  usize_t        magic_size;
   int            flags;
 };
 
@@ -240,12 +240,12 @@ static int         option_no_output          = 0; /* do not write output */
 static const char *option_source_filename    = NULL;
 
 static int         option_level              = XD3_DEFAULT_LEVEL;
-static size_t     option_iopt_size          = XD3_DEFAULT_IOPT_SIZE;
-static size_t     option_winsize            = XD3_DEFAULT_WINSIZE;
+static usize_t     option_iopt_size          = XD3_DEFAULT_IOPT_SIZE;
+static usize_t     option_winsize            = XD3_DEFAULT_WINSIZE;
 
-/* option_srcwinsz is restricted to [16kB, 2GB] when size_t is 32 bits. */
-static uint64_t      option_srcwinsz           = XD3_DEFAULT_SRCWINSZ;
-static size_t     option_sprevsz            = XD3_DEFAULT_SPREVSZ;
+/* option_srcwinsz is restricted to [16kB, 2GB] when usize_t is 32 bits. */
+static xoff_t      option_srcwinsz           = XD3_DEFAULT_SRCWINSZ;
+static usize_t     option_sprevsz            = XD3_DEFAULT_SPREVSZ;
 
 /* These variables are supressed to avoid their use w/o support.  main() warns
  * appropriately when external compression is not enabled. */
@@ -268,7 +268,7 @@ IF_DEBUG(static int main_mallocs = 0;)
 static char*           program_name = NULL;
 static uint8_t*        appheader_used = NULL;
 static uint8_t*        main_bdata = NULL;
-static size_t         main_bsize = 0;
+static usize_t         main_bsize = 0;
 
 /* Hacks for VCDIFF tools, recode command. */
 static int allow_fake_source = 0;
@@ -298,14 +298,14 @@ static void main_get_appheader (xd3_stream *stream, main_file *ifile,
 
 static int main_getblk_func (xd3_stream *stream,
 			     xd3_source *source,
-			     uint64_t      blkno);
-static int main_file_seek (main_file *xfile, uint64_t pos);
+			     xoff_t      blkno);
+static int main_file_seek (main_file *xfile, xoff_t pos);
 static int main_read_primary_input (main_file   *file,
 				    uint8_t     *buf,
 				    size_t       size,
 				    size_t      *nread);
 
-static const char* main_format_bcnt (uint64_t r, shortbuf *buf);
+static const char* main_format_bcnt (xoff_t r, shortbuf *buf);
 static int main_help (void);
 
 #if XD3_ENCODER
@@ -386,8 +386,8 @@ main_config (void)
   XPR(NTR "sizeof(size_t)=%d\n", (int)sizeof(size_t));
   XPR(NTR "sizeof(uint32_t)=%d\n", (int)sizeof(uint32_t));
   XPR(NTR "sizeof(uint64_t)=%d\n", (int)sizeof(uint64_t));
-  XPR(NTR "sizeof(size_t)=%d\n", (int)sizeof(size_t));
-  XPR(NTR "sizeof(uint64_t)=%d\n", (int)sizeof(uint64_t));
+  XPR(NTR "sizeof(usize_t)=%d\n", (int)sizeof(usize_t));
+  XPR(NTR "sizeof(xoff_t)=%d\n", (int)sizeof(xoff_t));
 
   return EXIT_SUCCESS;
 }
@@ -460,7 +460,7 @@ main_malloc (size_t size)
 static void*
 main_alloc (void   *opaque,
 	    size_t  items,
-	    size_t  size)
+	    usize_t  size)
 {
   return main_malloc1 (items * size);
 }
@@ -573,14 +573,14 @@ get_millisecs_since (void)
 }
 
 static const char*
-main_format_bcnt (uint64_t r, shortbuf *buf)
+main_format_bcnt (xoff_t r, shortbuf *buf)
 {
   static const char* fmts[] = { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB" };
-  size_t i;
+  usize_t i;
 
   for (i = 0; i < SIZEOF_ARRAY(fmts) - 1; i += 1)
     {
-      uint64_t new_r;
+      xoff_t new_r;
 
       if (r == 0)
 	{
@@ -627,9 +627,9 @@ main_format_bcnt (uint64_t r, shortbuf *buf)
 }
 
 static char*
-main_format_rate (uint64_t bytes, long millis, shortbuf *buf)
+main_format_rate (xoff_t bytes, long millis, shortbuf *buf)
 {
-  uint64_t r = (uint64_t)(1.0 * bytes / (1.0 * millis / 1000.0));
+  xoff_t r = (xoff_t)(1.0 * bytes / (1.0 * millis / 1000.0));
   static shortbuf lbuf;
 
   main_format_bcnt (r, &lbuf);
@@ -655,12 +655,12 @@ main_format_millis (long millis, shortbuf *buf)
   return buf->buf;
 }
 
-/* A safe version of strtol for uint64_t. */
+/* A safe version of strtol for xoff_t. */
 static int
-main_strtoxoff (const char* s, uint64_t *xo, char which)
+main_strtoxoff (const char* s, xoff_t *xo, char which)
 {
   char *e;
-  uint64_t x;
+  xoff_t x;
 
   XD3_ASSERT(s && *s != 0);
 
@@ -696,10 +696,10 @@ main_strtoxoff (const char* s, uint64_t *xo, char which)
 }
 
 static int
-main_atoux (const char* arg, uint64_t *xo, uint64_t low,
-	    uint64_t high, char which)
+main_atoux (const char* arg, xoff_t *xo, xoff_t low,
+	    xoff_t high, char which)
 {
-  uint64_t x;
+  xoff_t x;
   int ret;
 
   if ((ret = main_strtoxoff (arg, & x, which))) { return ret; }
@@ -719,16 +719,16 @@ main_atoux (const char* arg, uint64_t *xo, uint64_t low,
 }
 
 static int
-main_atou (const char* arg, size_t *uo, size_t low,
-	   size_t high, char which) 
+main_atou (const char* arg, usize_t *uo, usize_t low,
+	   usize_t high, char which) 
 {
   int ret;
-  uint64_t xo;
+  xoff_t xo;
   if ((ret = main_atoux (arg, &xo, low, high, which)))
     {
       return ret;
     }
-  *uo = (size_t)xo;
+  *uo = (usize_t)xo;
   return 0;
 }
 
@@ -909,7 +909,7 @@ main_file_open (main_file *xfile, const char* name, int mode)
 }
 
 int
-main_file_stat (main_file *xfile, uint64_t *size)
+main_file_stat (main_file *xfile, xoff_t *size)
 {
   int ret = 0;
 #if XD3_WIN32
@@ -965,7 +965,7 @@ main_file_exists (main_file *xfile)
  * This calls the function repeatedly until the buffer is full or EOF.
  * The NREAD parameter is not set for write, NULL is passed.  Return
  * is signed, < 0 indicate errors, otherwise byte count. */
-typedef int (xd3_posix_func) (int fd, uint8_t *buf, size_t size);
+typedef int (xd3_posix_func) (int fd, uint8_t *buf, usize_t size);
 
 static int
 xd3_posix_io (int fd, uint8_t *buf, size_t size,
@@ -1079,14 +1079,14 @@ main_file_read (main_file  *ifile,
 }
 
 int
-main_file_write (main_file *ofile, uint8_t *buf, size_t size, const char *msg)
+main_file_write (main_file *ofile, uint8_t *buf, usize_t size, const char *msg)
 {
   int ret = 0;
 
   IF_DEBUG1(DP(RINT "[main] write %"W"u\n bytes", size));
   
 #if XD3_STDIO
-  size_t result;
+  usize_t result;
 
   result = fwrite (buf, 1, size, ofile->file);
 
@@ -1115,7 +1115,7 @@ main_file_write (main_file *ofile, uint8_t *buf, size_t size, const char *msg)
 }
 
 static int
-main_file_seek (main_file *xfile, uint64_t pos)
+main_file_seek (main_file *xfile, xoff_t pos)
 {
   int ret = 0;
 
@@ -1123,7 +1123,7 @@ main_file_seek (main_file *xfile, uint64_t pos)
   if (fseek (xfile->file, pos, SEEK_SET) != 0) { ret = get_errno (); }
 
 #elif XD3_POSIX
-  if ((uint64_t) lseek (xfile->file, pos, SEEK_SET) != pos)
+  if ((xoff_t) lseek (xfile->file, pos, SEEK_SET) != pos)
     { ret = get_errno (); }
 
 #elif XD3_WIN32
@@ -1200,7 +1200,7 @@ main_set_secondary_flags (xd3_config *config)
 	}
       else if (strncmp (option_secondary, "djw", 3) == 0 && SECONDARY_DJW)
 	{
-	  size_t level = XD3_DEFAULT_SECONDARY_LEVEL;
+	  usize_t level = XD3_DEFAULT_SECONDARY_LEVEL;
 
 	  config->flags |= XD3_SEC_DJW;
 
@@ -1275,7 +1275,7 @@ main_set_secondary_flags (xd3_config *config)
 #define VE ) >= SNPRINTF_BUFSIZE			       \
   && (ret = main_print_overflow(ret)) != 0)		       \
   || (ret = main_file_write(xfile, xfile->snprintf_buf,        \
-			    (size_t)ret, "print")) != 0)      \
+			    (usize_t)ret, "print")) != 0)      \
   { return ret; } } while (0)
 
 static int
@@ -1290,18 +1290,18 @@ static int
 main_print_window (xd3_stream* stream, main_file *xfile)
 {
   int ret;
-  size_t size = 0;
+  usize_t size = 0;
 
   VC(UT "  Offset Code Type1 Size1  @Addr1 + Type2 Size2 @Addr2\n")VE;
 
   while (stream->inst_sect.buf < stream->inst_sect.buf_max)
     {
-      size_t code = stream->inst_sect.buf[0];
+      usize_t code = stream->inst_sect.buf[0];
       const uint8_t *addr_before = stream->addr_sect.buf;
       const uint8_t *inst_before = stream->inst_sect.buf;
-      size_t addr_bytes;
-      size_t inst_bytes;
-      size_t size_before = size;
+      usize_t addr_bytes;
+      usize_t inst_bytes;
+      usize_t size_before = size;
 
       if ((ret = xd3_decode_instruction (stream)))
 	{
@@ -1310,8 +1310,8 @@ main_print_window (xd3_stream* stream, main_file *xfile)
 	  return ret;
 	}
 
-      addr_bytes = (size_t)(stream->addr_sect.buf - addr_before);
-      inst_bytes = (size_t)(stream->inst_sect.buf - inst_before);
+      addr_bytes = (usize_t)(stream->addr_sect.buf - addr_before);
+      inst_bytes = (usize_t)(stream->inst_sect.buf - inst_before);
 
       VC(UT "  %06"Q"u %03"W"u  %s %6"W"u", 
 	 stream->dec_winstart + size,
@@ -1462,7 +1462,7 @@ main_print_func (xd3_stream* stream, main_file *xfile)
       if (stream->dec_hdr_ind & VCD_APPHEADER)
 	{
 	  uint8_t *apphead;
-	  size_t appheadsz;
+	  usize_t appheadsz;
 	  ret = xd3_get_appheader (stream, & apphead, & appheadsz);
 
 	  if (ret == 0 && appheadsz > 0)
@@ -1535,16 +1535,16 @@ main_print_func (xd3_stream* stream, main_file *xfile)
     }
 
   VC(UT "VCDIFF delta encoding length: %"W"u\n",
-     (size_t)stream->dec_enclen)VE;
+     (usize_t)stream->dec_enclen)VE;
   VC(UT "VCDIFF target window length:  %"W"u\n",
-     (size_t)stream->dec_tgtlen)VE;
+     (usize_t)stream->dec_tgtlen)VE;
 
   VC(UT "VCDIFF data section length:   %"W"u\n",
-     (size_t)stream->data_sect.size)VE;
+     (usize_t)stream->data_sect.size)VE;
   VC(UT "VCDIFF inst section length:   %"W"u\n",
-     (size_t)stream->inst_sect.size)VE;
+     (usize_t)stream->inst_sect.size)VE;
   VC(UT "VCDIFF addr section length:   %"W"u\n",
-     (size_t)stream->addr_sect.size)VE;
+     (usize_t)stream->addr_sect.size)VE;
 
   ret = 0;
   if ((stream->flags & XD3_JUST_HDR) != 0)
@@ -1635,7 +1635,7 @@ main_recode_func (xd3_stream* stream, main_file *ofile)
       option_appheader != NULL)
     {
       xd3_set_appheader (recode_stream, option_appheader,
-			 (size_t) strlen ((char*) option_appheader));
+			 (usize_t) strlen ((char*) option_appheader));
     }
   else if (option_use_appheader != 0 &&
 	   option_appheader == NULL)
@@ -1853,10 +1853,10 @@ static int
 main_merge_output (xd3_stream *stream, main_file *ofile)
 {
   int ret;
-  size_t inst_pos = 0;
-  uint64_t output_pos = 0;
+  usize_t inst_pos = 0;
+  xoff_t output_pos = 0;
   xd3_source recode_source;
-  size_t window_num = 0;
+  usize_t window_num = 0;
   int at_least_once = 0;
 
   /* merge_stream is set if there were arguments.  this stream's input
@@ -1873,7 +1873,7 @@ main_merge_output (xd3_stream *stream, main_file *ofile)
       option_appheader != NULL)
     {
       xd3_set_appheader (recode_stream, option_appheader,
-			 (size_t) strlen ((char*) option_appheader));
+			 (usize_t) strlen ((char*) option_appheader));
     }
 
   /* Enter the ENC_INPUT state and bypass the next_in == NULL test
@@ -1886,12 +1886,12 @@ main_merge_output (xd3_stream *stream, main_file *ofile)
   /* This encodes the entire target. */
   while (inst_pos < stream->whole_target.instlen || !at_least_once)
     {
-      uint64_t window_start = output_pos;
+      xoff_t window_start = output_pos;
       int window_srcset = 0;
-      uint64_t window_srcmin = 0;
-      uint64_t window_srcmax = 0;
-      size_t window_pos = 0;
-      size_t window_size;
+      xoff_t window_srcmin = 0;
+      xoff_t window_srcmax = 0;
+      usize_t window_pos = 0;
+      usize_t window_size;
 
       /* at_least_once ensures that we encode at least one window,
        * which handles the 0-byte case. */
@@ -1946,8 +1946,8 @@ main_merge_output (xd3_stream *stream, main_file *ofile)
 	     inst_pos < stream->whole_target.instlen)
 	{
 	  xd3_winst *inst = &stream->whole_target.inst[inst_pos];
-	  size_t take = xd3_min(inst->size, window_size - window_pos);
-	  uint64_t addr;
+	  usize_t take = xd3_min(inst->size, window_size - window_pos);
+	  xoff_t addr;
 
 	  switch (inst->type)
 	    {
@@ -2021,7 +2021,7 @@ main_merge_output (xd3_stream *stream, main_file *ofile)
       if (window_srcset) {
 	recode_stream->srcwin_decided = 1;
 	recode_stream->src = &recode_source;
-	recode_source.srclen = (size_t)(window_srcmax - window_srcmin);
+	recode_source.srclen = (usize_t)(window_srcmax - window_srcmin);
 	recode_source.srcbase = window_srcmin;
 	recode_stream->taroff = recode_source.srclen;
 
@@ -2109,7 +2109,7 @@ static pid_t ext_subprocs[MAX_SUBPROCS];
  * copier subprocess.  Does not print an error, to facilitate ignoring
  * trailing garbage, see main_pipe_copier(). */
 static int
-main_pipe_write (int outfd, uint8_t *exist_buf, size_t remain)
+main_pipe_write (int outfd, uint8_t *exist_buf, usize_t remain)
 {
   int ret;
 
@@ -2210,13 +2210,13 @@ main_external_compression_cleanup (void)
  * reused to continue reading from the compressed input file. */
 static int
 main_pipe_copier (uint8_t     *pipe_buf,
-		  size_t      pipe_bufsize,
+		  usize_t      pipe_bufsize,
 		  size_t       nread,
 		  main_file   *ifile,
 		  int          outfd)
 {
   int ret;
-  uint64_t skipped = 0;
+  xoff_t skipped = 0;
 
   /* Prevent SIGPIPE signals, allow EPIPE return values instead.  This
    * is safe to comment-out, except that the -F flag will not work
@@ -2277,10 +2277,10 @@ static int
 main_input_decompress_setup (const main_extcomp   *decomp,
 			     main_file            *ifile,
 			     uint8_t              *input_buf,
-			     size_t               input_bufsize,
+			     usize_t               input_bufsize,
 			     uint8_t              *pipe_buf,
-			     size_t               pipe_bufsize,
-			     size_t               pipe_avail,
+			     usize_t               pipe_bufsize,
+			     usize_t               pipe_avail,
 			     size_t               *nread)
 {
   /* The two pipes: input and output file descriptors. */
@@ -2432,8 +2432,8 @@ main_secondary_decompress_check (main_file  *file,
 				 size_t     *nread)
 {
   int ret;
-  size_t i;
-  size_t try_read = xd3_min (input_size, XD3_ALLOCSIZE);
+  usize_t i;
+  usize_t try_read = xd3_min (input_size, XD3_ALLOCSIZE);
   size_t  check_nread = 0;
   uint8_t check_buf[XD3_ALLOCSIZE];  /* TODO: heap allocate */
   const main_extcomp *decompressor = NULL;
@@ -2632,7 +2632,7 @@ main_recompress_output (main_file *ofile)
 static const main_extcomp*
 main_ident_compressor (const char *ident)
 {
-  size_t i;
+  usize_t i;
 
   for (i = 0; i < SIZEOF_ARRAY (extcomp_types); i += 1)
     {
@@ -2714,17 +2714,17 @@ main_set_appheader (xd3_stream *stream, main_file *input, main_file *sfile)
       const char *icomp;
       const char *sname;
       const char *scomp;
-      size_t len;
+      usize_t len;
 
       iname = main_apphead_string (input->filename);
       icomp = (input->compressor == NULL) ? "" : input->compressor->ident;
-      len = (size_t) strlen (iname) + (size_t) strlen (icomp) + 2;
+      len = (usize_t) strlen (iname) + (usize_t) strlen (icomp) + 2;
 
       if (sfile->filename != NULL)
 	{
 	  sname = main_apphead_string (sfile->filename);
 	  scomp = (sfile->compressor == NULL) ? "" : sfile->compressor->ident;
-	  len += (size_t) strlen (sname) + (size_t) strlen (scomp) + 2;
+	  len += (usize_t) strlen (sname) + (usize_t) strlen (scomp) + 2;
 	}
       else
 	{
@@ -2748,7 +2748,7 @@ main_set_appheader (xd3_stream *stream, main_file *input, main_file *sfile)
     }
 
   xd3_set_appheader (stream, appheader_used,
-		     (size_t) strlen ((char*)appheader_used));
+		     (usize_t) strlen ((char*)appheader_used));
 
   return 0;
 }
@@ -2778,11 +2778,11 @@ main_get_appheader_params (main_file *file, char **parsed,
 	const char *last_slash = strrchr(other->filename, '/');
 
 	if (last_slash != NULL) {
-	  size_t dlen = (size_t) (last_slash - other->filename);
+	  usize_t dlen = (usize_t) (last_slash - other->filename);
 
 	  XD3_ASSERT(file->filename_copy == NULL);
 	  file->filename_copy =
-	    (char*) main_malloc(dlen + 2 + (size_t) strlen(file->filename));
+	    (char*) main_malloc(dlen + 2 + (usize_t) strlen(file->filename));
 
 	  strncpy(file->filename_copy, other->filename, dlen);
 	  file->filename_copy[dlen] = '/';
@@ -2811,7 +2811,7 @@ main_get_appheader (xd3_stream *stream, main_file *ifile,
 		    main_file *output, main_file *sfile)
 {
   uint8_t *apphead;
-  size_t appheadsz;
+  usize_t appheadsz;
   int ret;
 
   /* The user may disable the application header.  Once the appheader
@@ -2950,15 +2950,15 @@ main_open_output (xd3_stream *stream, main_file *ofile)
   return 0;
 }
 
-static size_t
+static usize_t
 main_get_winsize (main_file *ifile) {
-  uint64_t file_size = 0;
-  size_t size = option_winsize;
+  xoff_t file_size = 0;
+  usize_t size = option_winsize;
   static shortbuf iszbuf;
 
   if (main_file_stat (ifile, &file_size) == 0)
     {
-      size = (size_t) xd3_min (file_size, (uint64_t) size);
+      size = (usize_t) xd3_min (file_size, (xoff_t) size);
     }
 
   size = xd3_max (size, XD3_ALLOCSIZE);
@@ -2990,12 +2990,12 @@ main_input (xd3_cmd     cmd,
   int        ret;
   xd3_stream stream;
   size_t     nread = 0;
-  size_t    winsize;
+  usize_t    winsize;
   int        stream_flags = 0;
   xd3_config config;
   xd3_source source;
-  uint64_t     last_total_in = 0;
-  uint64_t     last_total_out = 0;
+  xoff_t     last_total_in = 0;
+  xoff_t     last_total_out = 0;
   long       start_time;
   int        stdout_only = 0;
   int (*input_func) (xd3_stream*);
@@ -3184,15 +3184,15 @@ main_input (xd3_cmd     cmd,
   /* Main input loop. */
   do
     {
-      uint64_t input_offset;
-      uint64_t input_remain;
-      size_t try_read;
+      xoff_t input_offset;
+      xoff_t input_remain;
+      usize_t try_read;
 
       input_offset = ifile->nread;
 
       input_remain = XOFF_T_MAX - input_offset;
 
-      try_read = (size_t) xd3_min ((uint64_t) config.winsize, input_remain);
+      try_read = (usize_t) xd3_min ((xoff_t) config.winsize, input_remain);
 
       if ((ret = main_read_primary_input (ifile, main_bdata,
 					  try_read, & nread)))
@@ -3331,9 +3331,9 @@ main_input (xd3_cmd     cmd,
 		    shortbuf trdb, twdb;
 		    shortbuf srcpos;
 		    long millis = get_millisecs_since ();
-		    size_t this_read = (size_t)(stream.total_in -
+		    usize_t this_read = (usize_t)(stream.total_in -
 						  last_total_in);
-		    size_t this_write = (size_t)(stream.total_out -
+		    usize_t this_write = (usize_t)(stream.total_out -
 						   last_total_out);
 		    last_total_in = stream.total_in;
 		    last_total_out = stream.total_out;
@@ -3466,7 +3466,7 @@ done:
     {
       shortbuf tm;
       long end_time = get_millisecs_now ();
-      uint64_t nwrite = ofile != NULL ? ofile->nwrite : 0;
+      xoff_t nwrite = ofile != NULL ? ofile->nwrite : 0;
 
       XPR(NT "finished in %s; input %"Q"u output %"Q"u bytes (%0.2f%%)\n",
 	  main_format_millis (end_time - start_time, &tm),
@@ -3528,7 +3528,7 @@ setup_environment (int argc,
     return;
   }
 
-  (*env_free) = (char*) main_malloc((size_t) strlen(v) + 1);
+  (*env_free) = (char*) main_malloc((usize_t) strlen(v) + 1);
   strcpy(*env_free, v);
 
   /* Space needed for extra args, at least # of spaces */
@@ -3789,7 +3789,7 @@ int main (int argc, char **argv)
 	case 'A': if (my_optarg == NULL) { option_use_appheader = 0; }
 	          else { option_appheader = (uint8_t*) my_optarg; } break;
 	case 'B': {
-	  uint64_t bsize;
+	  xoff_t bsize;
 	  if ((ret = main_atoux (my_optarg, & bsize,
 				 XD3_MINSRCWINSZ, XD3_MAXSRCWINSZ, 'B')))
 	    {

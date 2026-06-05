@@ -5,6 +5,10 @@ project(EDRStore)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_VERBOSE_MAKEFILE TRUE)
+option(EDRSTORE_PLAIN_MODE "Bypass two-phase encryption for plaintext experiments" OFF)
+if(EDRSTORE_PLAIN_MODE)
+    add_compile_definitions(EDRSTORE_PLAIN_MODE)
+endif()
 list(APPEND CMAKE_MODULE_PATH ${EDRStore_SOURCE_DIR}/cmake)
 message(STATUS "CMAKE MODULE Path: ${CMAKE_MODULE_PATH}")
 

@@ -59,15 +59,15 @@ xd3_swap_whole_state (xd3_whole_state *a,
 
 static int
 xd3_realloc_buffer (xd3_stream *stream,
-                    size_t current_units,
-                    size_t unit_size,
-                    size_t new_units,
-                    size_t *alloc_size,
+                    usize_t current_units,
+                    usize_t unit_size,
+                    usize_t new_units,
+                    usize_t *alloc_size,
                     void **alloc_ptr)
 {
-  size_t needed;
-  size_t new_alloc;
-  size_t cur_size;
+  usize_t needed;
+  usize_t new_alloc;
+  usize_t cur_size;
   uint8_t *new_buf;
 
   needed = (current_units + new_units) * unit_size;
@@ -125,7 +125,7 @@ xd3_whole_alloc_winst (xd3_stream *stream,
 
 static int
 xd3_whole_alloc_adds (xd3_stream *stream,
-		      size_t count)
+		      usize_t count)
 {
   return xd3_realloc_buffer (stream,
 			     stream->whole_target.addslen,
@@ -361,11 +361,11 @@ xd3_merge_target_copy (xd3_stream *stream,
 static int
 xd3_merge_find_position (xd3_stream *stream,
 			 xd3_whole_state *source,
-			 uint64_t address,
-			 size_t *inst_num)
+			 xoff_t address,
+			 usize_t *inst_num)
 {
-  size_t low;
-  size_t high;
+  usize_t low;
+  usize_t high;
 
   if (address >= source->length)
     {
@@ -378,9 +378,9 @@ xd3_merge_find_position (xd3_stream *stream,
 
   while (low != high)
     {
-      uint64_t mid_lpos;
-      uint64_t mid_hpos;
-      size_t mid = low + (high - low) / 2;
+      xoff_t mid_lpos;
+      xoff_t mid_hpos;
+      usize_t mid = low + (high - low) / 2;
       mid_lpos = source->inst[mid].position;
 
       if (address < mid_lpos)
@@ -412,7 +412,7 @@ xd3_merge_source_copy (xd3_stream *stream,
 {
   int ret;
   xd3_winst iinst;
-  size_t sinst_num;
+  usize_t sinst_num;
 
   memcpy (& iinst, iinst_orig, sizeof (iinst));
 
@@ -428,9 +428,9 @@ xd3_merge_source_copy (xd3_stream *stream,
     {
       xd3_winst *sinst;
       xd3_winst *minst;
-      size_t sinst_offset;
-      size_t sinst_left;
-      size_t this_take;
+      usize_t sinst_offset;
+      usize_t sinst_left;
+      usize_t this_take;
 
       XD3_ASSERT (sinst_num < source->instlen);
 
@@ -438,7 +438,7 @@ xd3_merge_source_copy (xd3_stream *stream,
 
       XD3_ASSERT (iinst.addr >= sinst->position);
 
-      sinst_offset = (size_t)(iinst.addr - sinst->position);
+      sinst_offset = (usize_t)(iinst.addr - sinst->position);
 
       XD3_ASSERT (sinst->size > sinst_offset);
 
@@ -532,7 +532,7 @@ int xd3_merge_inputs (xd3_stream *stream,
 		      xd3_whole_state *input)
 {
   int ret = 0;
-  size_t i;
+  usize_t i;
   size_t input_i;
 
   for (i = 0; i < input->wininfolen; ++i) {

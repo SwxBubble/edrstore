@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libxdeltaLib.a CMakeFiles/xdeltaLib.dir/xdelta3.c.o
+/usr/bin/ranlib ../../../lib/libxdeltaLib.a

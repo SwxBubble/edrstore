@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../../../lib/libDATABASE_LIB.a CMakeFiles/DATABASE_LIB.dir/abs_db.cc.o CMakeFiles/DATABASE_LIB.dir/db_factory.cc.o CMakeFiles/DATABASE_LIB.dir/in_mem_db.cc.o CMakeFiles/DATABASE_LIB.dir/leveldb_db.cc.o CMakeFiles/DATABASE_LIB.dir/rocksdb_db.cc.o
+/usr/bin/ranlib ../../../lib/libDATABASE_LIB.a

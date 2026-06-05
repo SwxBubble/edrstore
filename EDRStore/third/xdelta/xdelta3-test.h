@@ -114,10 +114,10 @@ mt_exp_rand (uint32_t mean, uint32_t max_value)
 
 #define MSG_IS(x) (stream->msg != NULL && strcmp ((x), stream->msg) == 0)
 
-static const size_t TWO_MEGS_AND_DELTA = (3 << 20);
-static const size_t ADDR_CACHE_ROUNDS = 10000;
+static const usize_t TWO_MEGS_AND_DELTA = (3 << 20);
+static const usize_t ADDR_CACHE_ROUNDS = 10000;
 
-static const size_t TEST_FILE_MEAN   = 16384;
+static const usize_t TEST_FILE_MEAN   = 16384;
 static const double TEST_ADD_MEAN     = 128;
 static const double TEST_ADD_MAX      = 512;
 static const double TEST_ADD_RATIO    = 0.1;
@@ -187,10 +187,10 @@ static int do_fail (xd3_stream *stream, const char *buf)
 static int
 test_random_numbers (xd3_stream *stream, int ignore)
 {
-  size_t i;
-  size_t sum = 0;
-  size_t mean = 50;
-  size_t n_rounds = 1000000;
+  usize_t i;
+  usize_t sum = 0;
+  usize_t mean = 50;
+  usize_t n_rounds = 1000000;
   double average, error;
   double allowed_error = 0.1;
 
@@ -218,7 +218,7 @@ static int
 test_printf_xoff (xd3_stream *stream, int ignore)
 {
   char buf[64];
-  uint64_t x = XOFF_T_MAX;
+  xoff_t x = XOFF_T_MAX;
   snprintf_func (buf, sizeof(buf), "%"Q"u", x);
   const char *expect = XD3_USE_LARGEFILE64 ?
     "18446744073709551615" : "4294967295";
@@ -281,16 +281,16 @@ int test_setup (void)
 }
 
 static int
-test_make_inputs (xd3_stream *stream, uint64_t *ss_out, uint64_t *ts_out)
+test_make_inputs (xd3_stream *stream, xoff_t *ss_out, xoff_t *ts_out)
 {
-  size_t ts = (mt_random (&static_mtrand) % TEST_FILE_MEAN) +
+  usize_t ts = (mt_random (&static_mtrand) % TEST_FILE_MEAN) +
     TEST_FILE_MEAN / 2;
-  size_t ss = (mt_random (&static_mtrand) % TEST_FILE_MEAN) +
+  usize_t ss = (mt_random (&static_mtrand) % TEST_FILE_MEAN) +
     TEST_FILE_MEAN / 2;
   uint8_t *buf = (uint8_t*) malloc (ts + ss), *sbuf = buf, *tbuf = buf + ss;
-  size_t sadd = 0, sadd_max = (size_t)(ss * TEST_ADD_RATIO);
+  usize_t sadd = 0, sadd_max = (usize_t)(ss * TEST_ADD_RATIO);
   FILE  *tf = NULL, *sf = NULL;
-  size_t i, j;
+  usize_t i, j;
   int ret;
 
   if (buf == NULL) { return ENOMEM; }
@@ -319,10 +319,10 @@ test_make_inputs (xd3_stream *stream, uint64_t *ss_out, uint64_t *ts_out)
   /* XPR(NT "ss = %u ts = %u\n", ss, ts); */
   for (i = 0; i < ts; )
     {
-      size_t left = ts - i;
-      size_t next = mt_exp_rand ((uint32_t) TEST_ADD_MEAN,
+      usize_t left = ts - i;
+      usize_t next = mt_exp_rand ((uint32_t) TEST_ADD_MEAN,
 				  (uint32_t) TEST_ADD_MAX);
-      size_t add_left = sadd_max - sadd;
+      usize_t add_left = sadd_max - sadd;
       double add_prob = (left == 0) ? 0 : (add_left / (double) left);
       int do_copy;
 
@@ -401,10 +401,10 @@ test_compare_files (const char* tgt, const char *rec)
 {
   FILE *orig, *recons;
   static uint8_t obuf[TESTBUFSIZE], rbuf[TESTBUFSIZE];
-  uint64_t offset = 0;
+  xoff_t offset = 0;
   size_t i;
   size_t oc, rc;
-  uint64_t diffs = 0;
+  xoff_t diffs = 0;
 
   if ((orig = fopen (tgt, "r")) == NULL)
     {
@@ -479,7 +479,7 @@ test_save_copy (const char *origname)
 }
 
 static int
-test_file_size (const char* file, uint64_t *size)
+test_file_size (const char* file, xoff_t *size)
 {
   struct stat sbuf;
   int ret;
@@ -512,7 +512,7 @@ test_file_size (const char* file, uint64_t *size)
  * attempts to get errors by shortening the input, otherwise it should
  * overflow.  Expects XD3_INTERNAL and MSG. */
 static int
-test_read_integer_error (xd3_stream *stream, size_t trunto, const char *msg)
+test_read_integer_error (xd3_stream *stream, usize_t trunto, const char *msg)
 {
   uint64_t eval = 1ULL << 34;
   uint32_t rval;
@@ -575,8 +575,8 @@ test_decode_integer_end_of_input (xd3_stream *stream, int unused)
   xd3_output *rbuf = NULL; \
   xd3_output *dbuf = NULL; \
   TYPE values[64]; \
-  size_t nvalues = 0; \
-  size_t i; \
+  usize_t nvalues = 0; \
+  usize_t i; \
   int ret = 0; \
  \
   for (i = 0; i < (sizeof (TYPE) * 8); i += 7) \
@@ -695,7 +695,7 @@ test_usize_t_overflow (xd3_stream *stream, int unused)
 static int
 test_forward_match (xd3_stream *stream, int unused)
 {
-  size_t i;
+  usize_t i;
   uint8_t buf1[256], buf2[256];
 
   memset(buf1, 0, 256);
@@ -724,9 +724,9 @@ static int
 test_address_cache (xd3_stream *stream, int unused)
 {
   int ret;
-  size_t i;
-  size_t offset;
-  size_t *addrs;
+  usize_t i;
+  usize_t offset;
+  usize_t *addrs;
   uint8_t *big_buf, *buf_max;
   const uint8_t *buf;
   xd3_output *outp;
@@ -738,7 +738,7 @@ test_address_cache (xd3_stream *stream, int unused)
 
   if ((ret = xd3_encode_init_partial (stream))) { return ret; }
 
-  addrs = (size_t*) xd3_alloc (stream, sizeof (size_t), ADDR_CACHE_ROUNDS);
+  addrs = (usize_t*) xd3_alloc (stream, sizeof (usize_t), ADDR_CACHE_ROUNDS);
   modes = (uint8_t*) xd3_alloc (stream, sizeof (uint8_t), ADDR_CACHE_ROUNDS);
 
   memset (mode_counts, 0, sizeof (mode_counts));
@@ -754,9 +754,9 @@ test_address_cache (xd3_stream *stream, int unused)
   for (offset = 1; offset < ADDR_CACHE_ROUNDS; offset += 1)
     {
       double p;
-      size_t addr;
-      size_t prev_i;
-      size_t nearby;
+      usize_t addr;
+      usize_t prev_i;
+      usize_t nearby;
 
       p         = (mt_random (&static_mtrand) / (double)UINT32_MAX);
       prev_i    = mt_random (&static_mtrand) % offset;
@@ -789,7 +789,7 @@ test_address_cache (xd3_stream *stream, int unused)
 
   for (offset = 1; offset < ADDR_CACHE_ROUNDS; offset += 1)
     {
-      size_t addr;
+      usize_t addr;
 
       if ((ret = xd3_decode_address (stream, offset, modes[offset], 
 				     & buf, buf_max, & addr))) 
@@ -857,7 +857,7 @@ static const uint8_t test_apphead[] = "header test";
 static int
 test_compress_text (xd3_stream  *stream,
 		    uint8_t     *encoded,
-		    size_t     *encoded_size)
+		    usize_t     *encoded_size)
 {
   int ret;
   xd3_config cfg;
@@ -884,7 +884,7 @@ test_compress_text (xd3_stream  *stream,
   (*encoded_size) = 0;
 
   xd3_set_appheader (stream, test_apphead,
-		     (size_t) strlen ((char*) test_apphead));
+		     (usize_t) strlen ((char*) test_apphead));
 
   if ((ret = xd3_encode_stream (stream, test_text, sizeof (test_text),
 				encoded, encoded_size, 4*sizeof (test_text)))) { goto fail; }
@@ -899,18 +899,18 @@ test_compress_text (xd3_stream  *stream,
 }
 
 static int
-test_decompress_text (xd3_stream *stream, uint8_t *enc, size_t enc_size, size_t test_desize)
+test_decompress_text (xd3_stream *stream, uint8_t *enc, usize_t enc_size, usize_t test_desize)
 {
   xd3_config cfg;
   char decoded[sizeof (test_text)];
   uint8_t *apphead;
-  size_t apphead_size;
-  size_t decoded_size;
+  usize_t apphead_size;
+  usize_t decoded_size;
   const char *msg;
   int  ret;
-  size_t pos = 0;
+  usize_t pos = 0;
   int flags = stream->flags;
-  size_t take;
+  usize_t take;
 
  input:
   /* Test decoding test_desize input bytes at a time */
@@ -991,9 +991,9 @@ static int
 test_decompress_single_bit_error (xd3_stream *stream, int expected_non_failures)
 {
   int ret;
-  size_t i;
+  usize_t i;
   uint8_t encoded[4*sizeof (test_text)]; /* make room for alt code table */
-  size_t  encoded_size;
+  usize_t  encoded_size;
   int non_failures = 0;
   int cksum = (stream->flags & XD3_ADLER32) != 0;
 
@@ -1325,8 +1325,8 @@ sec_dist_func11 (xd3_stream *stream, xd3_output *data)
 static int
 test_secondary_decode (xd3_stream         *stream,
 		       const xd3_sec_type *sec,
-		       size_t              input_size,
-		       size_t              compress_size,
+		       usize_t              input_size,
+		       usize_t              compress_size,
 		       const uint8_t      *dec_input,
 		       const uint8_t      *dec_correct,
 		       uint8_t            *dec_output)
@@ -1380,12 +1380,12 @@ test_secondary_decode (xd3_stream         *stream,
 }
 
 static int
-test_secondary (xd3_stream *stream, const xd3_sec_type *sec, size_t groups)
+test_secondary (xd3_stream *stream, const xd3_sec_type *sec, usize_t groups)
 {
-  size_t test_i;
+  usize_t test_i;
   int ret;
   xd3_output *in_head, *out_head, *p;
-  size_t p_off, input_size, compress_size;
+  usize_t p_off, input_size, compress_size;
   uint8_t *dec_input = NULL, *dec_output = NULL, *dec_correct = NULL;
   xd3_sec_stream *enc_stream;
   xd3_sec_cfg cfg;
@@ -1511,11 +1511,11 @@ test_secondary (xd3_stream *stream, const xd3_sec_type *sec, size_t groups)
   return 0;
 }
 
-IF_FGK (static int test_secondary_fgk  (xd3_stream *stream, size_t gp)
+IF_FGK (static int test_secondary_fgk  (xd3_stream *stream, usize_t gp)
 	{ return test_secondary (stream, & fgk_sec_type, gp); })
-IF_DJW (static int test_secondary_huff (xd3_stream *stream, size_t gp)
+IF_DJW (static int test_secondary_huff (xd3_stream *stream, usize_t gp)
 	{ return test_secondary (stream, & djw_sec_type, gp); })
-IF_LZMA (static int test_secondary_lzma (xd3_stream *stream, size_t gp)
+IF_LZMA (static int test_secondary_lzma (xd3_stream *stream, usize_t gp)
 	{ return test_secondary (stream, & lzma_sec_type, gp); })
 
 #endif  /* SECONDARY_ANY */
@@ -1590,10 +1590,10 @@ test_checksum_step (xd3_stream *stream, int ignore)
       buf[i] = mt_random (&static_mtrand) & 0xff;
     }
 
-  for (size_t cksize = 4; cksize <= 32; cksize += 3)
+  for (usize_t cksize = 4; cksize <= 32; cksize += 3)
     {
       xd3_hash_cfg h1;
-      size_t x;
+      usize_t x;
       int ret;
 
       if ((ret = xd3_size_hashtable (stream, XD3_ALLOCSIZE, cksize, &h1)) != 0)
@@ -1602,9 +1602,9 @@ test_checksum_step (xd3_stream *stream, int ignore)
 	}
 
       x = xd3_large_cksum (&h1, buf, cksize);
-      for (size_t pos = 0; pos <= (bufsize - cksize); pos++)
+      for (usize_t pos = 0; pos <= (bufsize - cksize); pos++)
 	{
-	  size_t y = xd3_large_cksum (&h1, buf + pos, cksize);
+	  usize_t y = xd3_large_cksum (&h1, buf + pos, cksize);
 	  if (x != y)
 	    {
 	      stream->msg = "checksum != incremental checksum";
@@ -1624,14 +1624,14 @@ test_checksum_step (xd3_stream *stream, int ignore)
  ***********************************************************************/
 
 /* This test encodes and decodes a series of 1 megabyte windows, each
- * containing a long run of zeros along with a single uint64_t size
+ * containing a long run of zeros along with a single xoff_t size
  * record to indicate the sequence. */
 static int
-test_streaming (xd3_stream *in_stream, uint8_t *encbuf, uint8_t *decbuf, uint8_t *delbuf, size_t megs)
+test_streaming (xd3_stream *in_stream, uint8_t *encbuf, uint8_t *decbuf, uint8_t *delbuf, usize_t megs)
 {
   xd3_stream estream, dstream;
   int ret;
-  size_t i, delsize, decsize;
+  usize_t i, delsize, decsize;
   xd3_config cfg;
   xd3_init_config (& cfg, in_stream->flags);
   cfg.flags |= XD3_COMPLEVEL_6;
@@ -1644,7 +1644,7 @@ test_streaming (xd3_stream *in_stream, uint8_t *encbuf, uint8_t *decbuf, uint8_t
 
   for (i = 0; i < megs; i += 1)
     {
-      ((size_t*) encbuf)[0] = i;
+      ((usize_t*) encbuf)[0] = i;
 
       if ((i % 200) == 199) { DOT (); }
 
@@ -1781,8 +1781,8 @@ test_command_line_arguments (xd3_stream *stream, int ignore)
 
   char ecmd[TESTBUFSIZE], dcmd[TESTBUFSIZE];
   int pairs = SIZEOF_ARRAY (cmdpairs) / 2;
-  uint64_t tsize;
-  uint64_t dsize;
+  xoff_t tsize;
+  xoff_t dsize;
   double ratio;
 
   mt_init (& static_mtrand, 0x9f73f7fc);
@@ -1920,7 +1920,7 @@ test_recode_command2 (xd3_stream *stream, int has_source,
   int recoded_secondary = change_secondary ? !has_secondary : has_secondary;
 
   char ecmd[TESTBUFSIZE], recmd[TESTBUFSIZE], dcmd[TESTBUFSIZE];
-  uint64_t tsize, ssize;
+  xoff_t tsize, ssize;
   int ret;
 
   test_setup ();
@@ -2200,7 +2200,7 @@ test_compressed_pipe (xd3_stream *stream, main_extcomp *ext, char* buf,
 static int
 test_externally_compressed_io (xd3_stream *stream, int ignore)
 {
-  size_t i;
+  usize_t i;
   int ret;
   char buf[TESTBUFSIZE];
 
@@ -2253,7 +2253,7 @@ test_source_decompression (xd3_stream *stream, int ignore)
   int ret;
   char buf[TESTBUFSIZE];
   const main_extcomp *ext;
-  uint64_t dsize;
+  xoff_t dsize;
 
   mt_init (& static_mtrand, 0x9f73f7fc);
 
@@ -2451,7 +2451,7 @@ test_appheader (xd3_stream *stream, int ignore)
   int ret;
   char buf[TESTBUFSIZE];
   char bogus[TESTBUFSIZE];
-  uint64_t ssize, tsize;
+  xoff_t ssize, tsize;
   test_setup ();
 
   if ((ret = test_make_inputs (stream, &ssize, &tsize))) { return ret; }
@@ -2538,7 +2538,7 @@ test_identical_behavior (xd3_stream *stream, int ignore)
   xd3_source source;
   int nextencwin = 0;
   int winstarts = 0, winfinishes = 0;
-  size_t delpos = 0, recsize;
+  usize_t delpos = 0, recsize;
   xd3_config config;
   memset(&source, 0, sizeof(source));
 
@@ -2714,7 +2714,7 @@ static const string_match_test match_tests[] =
 static int
 test_string_matching (xd3_stream *stream, int ignore)
 {
-  size_t i;
+  usize_t i;
   int ret;
   xd3_config config;
   char rbuf[TESTBUFSIZE];
@@ -2723,7 +2723,7 @@ test_string_matching (xd3_stream *stream, int ignore)
     {
       const string_match_test *test = & match_tests[i];
       char *rptr = rbuf;
-      size_t len = (size_t) strlen (test->input);
+      usize_t len = (usize_t) strlen (test->input);
 
       xd3_free_stream (stream);
       xd3_init_config (& config, 0);
@@ -2796,8 +2796,8 @@ static int
 test_iopt_flush_instructions (xd3_stream *stream, int ignore)
 {
   int ret, i;
-  size_t tpos = 0;
-  size_t delta_size, recon_size;
+  usize_t tpos = 0;
+  usize_t delta_size, recon_size;
   xd3_config config;
   uint8_t target[TESTBUFSIZE];
   uint8_t delta[TESTBUFSIZE];
@@ -2862,12 +2862,12 @@ test_source_cksum_offset (xd3_stream *stream, int ignore)
 
   // Inputs are:
   struct {
-    uint64_t   cpos;   // stream->srcwin_cksum_pos;
-    uint64_t   ipos;   // stream->total_in;
-    uint64_t   size;   // stream->src->size;
+    xoff_t   cpos;   // stream->srcwin_cksum_pos;
+    xoff_t   ipos;   // stream->total_in;
+    xoff_t   size;   // stream->src->size;
 
-    size_t  input;  // input  32-bit offset
-    uint64_t   output; // output 64-bit offset
+    usize_t  input;  // input  32-bit offset
+    xoff_t   output; // output 64-bit offset
 
   } cksum_test[] = {
     // If cpos is <= 2^32
@@ -2891,7 +2891,7 @@ test_source_cksum_offset (xd3_stream *stream, int ignore)
   stream->src = &source;
 
   for (test_ptr = cksum_test; test_ptr->cpos; test_ptr++) {
-    uint64_t r;
+    xoff_t r;
     stream->srcwin_cksum_pos = test_ptr->cpos;
     stream->total_in = test_ptr->ipos;
 
@@ -2909,8 +2909,8 @@ test_in_memory (xd3_stream *stream, int ignore)
   uint8_t ibuf[sizeof(test_text)];
   uint8_t dbuf[sizeof(test_text)];
   uint8_t obuf[sizeof(test_text)];
-  size_t size = sizeof(test_text);
-  size_t dsize, osize;
+  usize_t size = sizeof(test_text);
+  usize_t dsize, osize;
   int r1, r2;
   int eflags = SECONDARY_DJW ? XD3_SEC_DJW : 0;
 

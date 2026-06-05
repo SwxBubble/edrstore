@@ -47,7 +47,7 @@
 static inline uint32_t
 xd3_scksum (uint32_t *state,
             const uint8_t *base,
-            const size_t look)
+            const usize_t look)
 {
   UNALIGNED_READ32(state, base);
   return (*state) * xd3_hash_multiplier32;
@@ -55,25 +55,25 @@ xd3_scksum (uint32_t *state,
 static inline uint32_t
 xd3_small_cksum_update (uint32_t *state,
 			const uint8_t *base,
-			size_t look)
+			usize_t look)
 {
   UNALIGNED_READ32(state, base+1);
   return (*state) * xd3_hash_multiplier32;
 }
 
 #if XD3_ENCODER
-inline size_t
-xd3_checksum_hash (const xd3_hash_cfg *cfg, const size_t cksum)
+inline usize_t
+xd3_checksum_hash (const xd3_hash_cfg *cfg, const usize_t cksum)
 {
   return (cksum >> cfg->shift) ^ (cksum & cfg->mask);
 }
 
 #if SIZEOF_USIZE_T == 4
 inline uint32_t
-xd3_large32_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const size_t look)
+xd3_large32_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const usize_t look)
 {
   uint32_t h = 0;
-  for (size_t i = 0; i < look; i++) {
+  for (usize_t i = 0; i < look; i++) {
     h += base[i] * cfg->powers[i];
   }
   return h;
@@ -81,7 +81,7 @@ xd3_large32_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const size_t look)
 
 inline uint32_t
 xd3_large32_cksum_update (xd3_hash_cfg *cfg, const uint32_t cksum,
-			  const uint8_t *base, const size_t look)
+			  const uint8_t *base, const usize_t look)
 {
   return xd3_hash_multiplier32 * cksum - cfg->multiplier * base[0] + base[look];
 }
@@ -89,10 +89,10 @@ xd3_large32_cksum_update (xd3_hash_cfg *cfg, const uint32_t cksum,
 
 #if SIZEOF_USIZE_T == 8
 inline uint64_t
-xd3_large64_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const size_t look)
+xd3_large64_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const usize_t look)
 {
   uint64_t h = 0;
-  for (size_t i = 0; i < look; i++) {
+  for (usize_t i = 0; i < look; i++) {
     h += base[i] * cfg->powers[i];
   }
   return h;
@@ -100,17 +100,17 @@ xd3_large64_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const size_t look)
 
 inline uint64_t
 xd3_large64_cksum_update (xd3_hash_cfg *cfg, const uint64_t cksum,
-			  const uint8_t *base, const size_t look)
+			  const uint8_t *base, const usize_t look)
 {
   return xd3_hash_multiplier64 * cksum - cfg->multiplier * base[0] + base[look];
 }
 #endif
 
-static size_t
-xd3_size_hashtable_bits (size_t slots)
+static usize_t
+xd3_size_hashtable_bits (usize_t slots)
 {
-  size_t bits = (SIZEOF_USIZE_T * 8) - 1;
-  size_t i;
+  usize_t bits = (SIZEOF_USIZE_T * 8) - 1;
+  usize_t i;
 
   for (i = 3; i <= bits; i += 1)
     {
@@ -128,11 +128,11 @@ xd3_size_hashtable_bits (size_t slots)
 
 int
 xd3_size_hashtable (xd3_stream   *stream,
-		    size_t       slots,
-		    size_t       look,
+		    usize_t       slots,
+		    usize_t       look,
 		    xd3_hash_cfg *cfg)
 {
-  size_t bits = xd3_size_hashtable_bits (slots);
+  usize_t bits = xd3_size_hashtable_bits (slots);
 
   cfg->size  = (1U << bits);
   cfg->mask  = (cfg->size - 1);
@@ -140,7 +140,7 @@ xd3_size_hashtable (xd3_stream   *stream,
   cfg->look  = look;
 
   if ((cfg->powers = 
-       (size_t*) xd3_alloc0 (stream, look, sizeof (size_t))) == NULL)
+       (usize_t*) xd3_alloc0 (stream, look, sizeof (usize_t))) == NULL)
     {
       return ENOMEM;
     }

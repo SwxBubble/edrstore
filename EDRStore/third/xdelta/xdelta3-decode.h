@@ -24,7 +24,7 @@
                                     VCD_TARGET) ? VCD_TARGET : 0))
 
 static inline int
-xd3_decode_byte (xd3_stream *stream, size_t *val)
+xd3_decode_byte (xd3_stream *stream, usize_t *val)
 {
   if (stream->avail_in == 0)
     {
@@ -39,10 +39,10 @@ xd3_decode_byte (xd3_stream *stream, size_t *val)
 }
 
 static inline int
-xd3_decode_bytes (xd3_stream *stream, uint8_t *buf, size_t *pos, size_t size)
+xd3_decode_bytes (xd3_stream *stream, uint8_t *buf, usize_t *pos, usize_t size)
 {
-  size_t want;
-  size_t take;
+  usize_t want;
+  usize_t take;
 
   /* Note: The case where (*pos == size) happens when a zero-length
    * appheader or code table is transmitted, but there is nothing in
@@ -124,7 +124,7 @@ xd3_decode_setup_buffers (xd3_stream *stream)
 
       /* TODO: (See note above, this looks incorrect) */
       stream->dec_cpyaddrbase = stream->dec_lastwin +
-	(size_t) (stream->dec_cpyoff - stream->dec_laststart);
+	(usize_t) (stream->dec_cpyoff - stream->dec_laststart);
     }
 
   /* See if the current output window is large enough. */
@@ -155,9 +155,9 @@ xd3_decode_setup_buffers (xd3_stream *stream)
 
 static int
 xd3_decode_allocate (xd3_stream  *stream,
-		     size_t       size,
+		     usize_t       size,
 		     uint8_t    **buf_ptr,
-		     size_t      *buf_alloc)
+		     usize_t      *buf_alloc)
 {
   IF_DEBUG2 (DP(RINT "[xd3_decode_allocate] size %"W"u alloc %"W"u\n",
 		size, *buf_alloc));
@@ -192,7 +192,7 @@ xd3_decode_section (xd3_stream *stream,
 
   if (section->pos < section->size)
     {
-      size_t sect_take;
+      usize_t sect_take;
 
       if (stream->avail_in == 0)
 	{
@@ -209,7 +209,7 @@ xd3_decode_section (xd3_stream *stream,
 	}
       else
 	{
-	  size_t sect_need = section->size - section->pos;
+	  usize_t sect_need = section->size - section->pos;
 
 	  /* Allocate and copy */
 	  sect_take = xd3_min (sect_need, stream->avail_in);
@@ -404,7 +404,7 @@ xd3_decode_output_halfinst (xd3_stream *stream, xd3_hinst *inst)
    * XD3_GETSRCBLK to the caller.  Each time through a copy takes the
    * minimum of inst->size and the available space on whichever block
    * supplies the data */
-  size_t take = inst->size;
+  usize_t take = inst->size;
 
   if (USIZE_T_OVERFLOW (stream->avail_out, take) ||
       stream->avail_out + take > stream->space_out)
@@ -455,7 +455,7 @@ xd3_decode_output_halfinst (xd3_stream *stream, xd3_hinst *inst)
       }
     default:
       {
-	size_t i;
+	usize_t i;
 	const uint8_t *src;
 	uint8_t *dst;
 	int overlap;
@@ -498,9 +498,9 @@ xd3_decode_output_halfinst (xd3_stream *stream, xd3_hinst *inst)
 		 * know the first block number needed for this
 		 * copy. */
 		xd3_source *source = stream->src;
-		uint64_t block = source->cpyoff_blocks;
-		size_t blkoff = source->cpyoff_blkoff;
-		const size_t blksize = source->blksize;
+		xoff_t block = source->cpyoff_blocks;
+		usize_t blkoff = source->cpyoff_blkoff;
+		const usize_t blksize = source->blksize;
 		int ret;
 
 		xd3_blksize_add (&block, &blkoff, source, inst->addr);
@@ -632,7 +632,7 @@ xd3_decode_secondary_sections (xd3_stream *secondary_stream)
 static int
 xd3_decode_sections (xd3_stream *stream)
 {
-  size_t need, more, take;
+  usize_t need, more, take;
   int copy, ret;
 
   if ((stream->flags & XD3_JUST_HDR) != 0)
@@ -975,8 +975,8 @@ xd3_decode_input (xd3_stream *stream)
 	    }
 	}
 
-      /* uint64_t -> size_t is safe because this is the first block. */
-      stream->dec_hdrsize = (size_t) stream->total_in;
+      /* xoff_t -> usize_t is safe because this is the first block. */
+      stream->dec_hdrsize = (usize_t) stream->total_in;
       stream->dec_state = DEC_WININD;
 
     case DEC_WININD:
@@ -1053,10 +1053,10 @@ xd3_decode_input (xd3_stream *stream)
 
       /* Set the maximum decoder position, beyond which we should not
        * decode any data.  This is the maximum value for dec_position.
-       * This may not exceed the size of a size_t. */
+       * This may not exceed the size of a usize_t. */
       if (USIZE_T_OVERFLOW (stream->dec_cpylen, stream->dec_tgtlen))
 	{
-	  stream->msg = "decoder target window overflows a size_t";
+	  stream->msg = "decoder target window overflows a usize_t";
 	  return XD3_INVALID_INPUT;
 	}
 
@@ -1117,7 +1117,7 @@ xd3_decode_input (xd3_stream *stream)
 
       /* Check dec_enclen for redundency, otherwise it is not really used. */
       {
-	size_t enclen_check =
+	usize_t enclen_check =
 	  (1 + (xd3_sizeof_size (stream->dec_tgtlen) +
 		xd3_sizeof_size (stream->data_sect.size) +
 		xd3_sizeof_size (stream->inst_sect.size) +

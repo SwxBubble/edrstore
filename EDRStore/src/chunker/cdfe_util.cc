@@ -13,7 +13,7 @@
 namespace {
 
 static inline uint64_t GearValue(uint8_t byte) {
-    return static_cast<uint64_t>(GEAR[byte]);
+    return GEAR_TABLE[byte];
 }
 
 static inline uint64_t Mix64(uint64_t x) {

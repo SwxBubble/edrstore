@@ -17,10 +17,20 @@
 
 #include "../../third/xdelta/xdelta3.h"
 
+#ifdef Z
+#undef Z
+#endif
+#ifdef W
+#undef W
+#endif
+#ifdef Q
+#undef Q
+#endif
+
 class DeltaComp {
     private:
         string my_name_ = "DeltaComp";
-        int delta_flag_ = XD3_NOCOMPRESS;
+        int delta_flag_ = 0;
 
     public:
         /**

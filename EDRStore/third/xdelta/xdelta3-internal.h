@@ -29,7 +29,7 @@ void main_file_cleanup (main_file *xfile);
 int main_file_isopen (main_file *xfile);
 int main_file_open (main_file *xfile, const char* name, int mode);
 int main_file_exists (main_file *xfile);
-int main_file_stat (main_file *xfile, uint64_t *size);
+int main_file_stat (main_file *xfile, xoff_t *size);
 int xd3_whole_append_window (xd3_stream *stream);
 int xd3_main_cmdline (int argc, char **argv);
 int main_file_read (main_file  *ifile,
@@ -38,17 +38,17 @@ int main_file_read (main_file  *ifile,
 		    size_t    *nread,
 		    const char *msg);
 int main_file_write (main_file *ofile, uint8_t *buf, 
-		     size_t size, const char *msg);
+		     usize_t size, const char *msg);
 void* main_malloc (size_t size);
 void main_free (void *ptr);
 
 int test_compare_files (const char* f0, const char* f1);
-size_t xd3_bytes_on_srcblk (xd3_source *src, uint64_t blkno);
-uint64_t xd3_source_eof(const xd3_source *src);
+usize_t xd3_bytes_on_srcblk (xd3_source *src, xoff_t blkno);
+xoff_t xd3_source_eof(const xd3_source *src);
 
 uint32_t xd3_large_cksum_update (uint32_t cksum,
 				 const uint8_t *base,
-				 size_t look);
+				 usize_t look);
 int xd3_emit_byte (xd3_stream  *stream,
 		   xd3_output **outputp,
 		   uint8_t      code);
@@ -56,22 +56,22 @@ int xd3_emit_byte (xd3_stream  *stream,
 int xd3_emit_bytes (xd3_stream     *stream,
 		    xd3_output    **outputp,
 		    const uint8_t  *base,
-		    size_t          size);
+		    usize_t          size);
 xd3_output* xd3_alloc_output (xd3_stream *stream,
 			      xd3_output *old_output);
 
 int xd3_encode_init_full (xd3_stream *stream);
-size_t xd3_pow2_roundup (size_t x);
+usize_t xd3_pow2_roundup (usize_t x);
 long get_millisecs_now (void);
 int xd3_process_stream (int            is_encode,
 			xd3_stream    *stream,
 			int          (*func) (xd3_stream *),
 			int            close_stream,
 			const uint8_t *input,
-			size_t        input_size,
+			usize_t        input_size,
 			uint8_t       *output,
-			size_t       *output_size,
-			size_t        output_size_max);
+			usize_t       *output_size,
+			usize_t        output_size_max);
 
 #if PYTHON_MODULE || SWIG_MODULE || NOT_MAIN
 int xd3_main_cmdline (int argc, char **argv);
@@ -126,11 +126,11 @@ struct _main_file
 				      * /dev/stdout, /dev/stderr. */
   const main_extcomp *compressor;    /* External compression struct. */
   int                 flags;         /* RD_FIRST, RD_NONEXTERNAL, ... */
-  uint64_t              nread;         /* for input position */
-  uint64_t              nwrite;        /* for output position */
+  xoff_t              nread;         /* for input position */
+  xoff_t              nwrite;        /* for output position */
   uint8_t            *snprintf_buf;  /* internal snprintf() use */
   int                 size_known;    /* Set by main_set_souze */
-  uint64_t              source_position;  /* for avoiding seek in getblk_func */
+  xoff_t              source_position;  /* for avoiding seek in getblk_func */
   int                 seek_failed;   /* after seek fails once, try FIFO */
 };
 
@@ -152,7 +152,7 @@ struct _main_file
 /* Consume N bytes of input, only used by the decoder. */
 #define DECODE_INPUT(n)             \
   do {                              \
-  stream->total_in += (uint64_t) (n); \
+  stream->total_in += (xoff_t) (n); \
   stream->avail_in -= (n);          \
   stream->next_in  += (n);          \
   } while (0)
@@ -160,7 +160,7 @@ struct _main_file
 #define DECODE_INTEGER_TYPE(PART,OFLOW)                                \
   while (stream->avail_in != 0)                                        \
     {                                                                  \
-      size_t next = stream->next_in[0];                               \
+      usize_t next = stream->next_in[0];                               \
                                                                        \
       DECODE_INPUT(1);                                                 \
                                                                        \
@@ -186,7 +186,7 @@ struct _main_file
 #define READ_INTEGER_TYPE(TYPE, OFLOW)                                 \
   TYPE val = 0;                                                        \
   const uint8_t *inp = (*inpp);                                        \
-  size_t next;                                                        \
+  usize_t next;                                                        \
                                                                        \
   do                                                                   \
     {                                                                  \
@@ -215,7 +215,7 @@ struct _main_file
 #define EMIT_INTEGER_TYPE()                                            \
   /* max 64-bit value in base-7 encoding is 9.1 bytes */               \
   uint8_t buf[10];                                                     \
-  size_t  bufi = 10;                                                  \
+  usize_t  bufi = 10;                                                  \
                                                                        \
   /* This loop performs division and turns on all MSBs. */             \
   do                                                                   \
@@ -301,15 +301,15 @@ xd3_emit_uint64_t (xd3_stream *stream, xd3_output **output, uint64_t num)
 #define xd3_large_cksum_update  xd3_large32_cksum_update
 #define xd3_hash_multiplier     xd3_hash_multiplier32
 
-static inline uint32_t xd3_sizeof_size (size_t num)
+static inline uint32_t xd3_sizeof_size (usize_t num)
 { return xd3_sizeof_uint32_t (num); }
-static inline int xd3_decode_size (xd3_stream *stream, size_t *valp)
+static inline int xd3_decode_size (xd3_stream *stream, usize_t *valp)
 { return xd3_decode_uint32_t (stream, (uint32_t*) valp); }
 static inline int xd3_read_size (xd3_stream *stream, const uint8_t **inpp,
-		   const uint8_t *maxp, size_t *valp)
+		   const uint8_t *maxp, usize_t *valp)
 { return xd3_read_uint32_t (stream, inpp, maxp, (uint32_t*) valp); }
 #if XD3_ENCODER
-static inline int xd3_emit_size (xd3_stream *stream, xd3_output **output, size_t num)
+static inline int xd3_emit_size (xd3_stream *stream, xd3_output **output, usize_t num)
 { return xd3_emit_uint32_t (stream, output, num); }
 #endif
 
@@ -321,15 +321,15 @@ static inline int xd3_emit_size (xd3_stream *stream, xd3_output **output, size_t
 #define xd3_large_cksum_update  xd3_large64_cksum_update
 #define xd3_hash_multiplier     xd3_hash_multiplier64
 
-static inline uint32_t xd3_sizeof_size (size_t num)
+static inline uint32_t xd3_sizeof_size (usize_t num)
 { return xd3_sizeof_uint64_t (num); }
-static inline int xd3_decode_size (xd3_stream *stream, size_t *valp)
+static inline int xd3_decode_size (xd3_stream *stream, usize_t *valp)
 { return xd3_decode_uint64_t (stream, (uint64_t*) valp); }
 static inline int xd3_read_size (xd3_stream *stream, const uint8_t **inpp,
-		   const uint8_t *maxp, size_t *valp)
+		   const uint8_t *maxp, usize_t *valp)
 { return xd3_read_uint64_t (stream, inpp, maxp, (uint64_t*) valp); }
 #if XD3_ENCODER
-static inline int xd3_emit_size (xd3_stream *stream, xd3_output **output, size_t num)
+static inline int xd3_emit_size (xd3_stream *stream, xd3_output **output, usize_t num)
 { return xd3_emit_uint64_t (stream, output, num); }
 #endif
 
@@ -338,45 +338,45 @@ static inline int xd3_emit_size (xd3_stream *stream, xd3_output **output, size_t
 #if SIZEOF_XOFF_T == 4
 #define XOFF_T_MAX        UINT32_MAX
 
-static inline int xd3_decode_offset (xd3_stream *stream, uint64_t *valp)
+static inline int xd3_decode_offset (xd3_stream *stream, xoff_t *valp)
 { return xd3_decode_uint32_t (stream, (uint32_t*) valp); }
 #if XD3_ENCODER
-static inline int xd3_emit_offset (xd3_stream *stream, xd3_output **output, uint64_t num)
+static inline int xd3_emit_offset (xd3_stream *stream, xd3_output **output, xoff_t num)
 { return xd3_emit_uint32_t (stream, output, num); }
 #endif
 
 #elif SIZEOF_XOFF_T == 8
 #define XOFF_T_MAX        UINT64_MAX
 
-static inline int xd3_decode_offset (xd3_stream *stream, uint64_t *valp)
+static inline int xd3_decode_offset (xd3_stream *stream, xoff_t *valp)
 { return xd3_decode_uint64_t (stream, (uint64_t*) valp); }
 #if XD3_ENCODER
-static inline int xd3_emit_offset (xd3_stream *stream, xd3_output **output, uint64_t num)
+static inline int xd3_emit_offset (xd3_stream *stream, xd3_output **output, xoff_t num)
 { return xd3_emit_uint64_t (stream, output, num); }
 #endif
 
 #endif
 
-#define USIZE_T_OVERFLOW(a,b) ((USIZE_T_MAX - (size_t) (a)) < (size_t) (b))
-#define XOFF_T_OVERFLOW(a,b) ((XOFF_T_MAX - (uint64_t) (a)) < (uint64_t) (b))
+#define USIZE_T_OVERFLOW(a,b) ((USIZE_T_MAX - (usize_t) (a)) < (usize_t) (b))
+#define XOFF_T_OVERFLOW(a,b) ((XOFF_T_MAX - (xoff_t) (a)) < (xoff_t) (b))
 
 int xd3_size_hashtable (xd3_stream   *stream,
-			size_t       slots,
-			size_t       look,
+			usize_t       slots,
+			usize_t       look,
 			xd3_hash_cfg *cfg);
 
-size_t xd3_checksum_hash (const xd3_hash_cfg *cfg, const size_t cksum);
+usize_t xd3_checksum_hash (const xd3_hash_cfg *cfg, const usize_t cksum);
 
 #if USE_UINT32
-uint32_t xd3_large32_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const size_t look);
+uint32_t xd3_large32_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const usize_t look);
 uint32_t xd3_large32_cksum_update (xd3_hash_cfg *cfg, const uint32_t cksum,
-				   const uint8_t *base, const size_t look);
+				   const uint8_t *base, const usize_t look);
 #endif /* USE_UINT32 */
 
 #if USE_UINT64
-uint64_t xd3_large64_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const size_t look);
+uint64_t xd3_large64_cksum (xd3_hash_cfg *cfg, const uint8_t *base, const usize_t look);
 uint64_t xd3_large64_cksum_update (xd3_hash_cfg *cfg, const uint64_t cksum,
-				   const uint8_t *base, const size_t look);
+				   const uint8_t *base, const usize_t look);
 #endif /* USE_UINT64 */
 
 #define MAX_LRU_SIZE 32U
