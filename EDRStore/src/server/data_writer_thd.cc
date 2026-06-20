@@ -202,7 +202,7 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         }
     }
 
-    if (best_delta_chunk_size < input_chunk->info.size) {
+    if (best_delta_chunk_size < input_chunk->info.size * 0.2) {
         found_good_delta = true;
     }
 
