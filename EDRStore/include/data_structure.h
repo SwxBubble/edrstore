@@ -38,7 +38,7 @@ typedef Chunk_t Chunker2KeyGen_t;
 
 typedef struct {
     Chunk_t chunk;
-    uint64_t features[SUPER_FEATURE_PER_CHUNK];    
+    uint64_t features[SUB_FEATURE_PER_CHUNK];
 } FeatureChunk_t;
 
 typedef struct {
@@ -54,7 +54,7 @@ typedef EncFeatureChunk_t KeyGen2SelectComp_t;
 typedef struct {
     uint32_t size;
     uint8_t type;
-    uint64_t cipher_features[SUPER_FEATURE_PER_CHUNK];
+    uint64_t cipher_features[SUB_FEATURE_PER_CHUNK];
     uint8_t compressed_fp[CHUNK_HASH_SIZE];
 } SendChunkHeader_t;
 
@@ -79,7 +79,7 @@ typedef struct {
 
 typedef struct {
     // uint8_t fp[CHUNK_HASH_SIZE];
-    uint64_t features[SUPER_FEATURE_PER_CHUNK];
+    uint64_t features[SUB_FEATURE_PER_CHUNK];
 } KeyGenReq_t;
 
 typedef struct {
@@ -118,7 +118,7 @@ typedef struct {
 typedef struct {
     uint8_t fp[CHUNK_HASH_SIZE]; // chunk fp
     // uint8_t compressed_fp[CHUNK_HASH_SIZE];
-    uint64_t features[SUPER_FEATURE_PER_CHUNK];
+    uint64_t features[SUB_FEATURE_PER_CHUNK];
     KeyForChunkHashDB_t addr;
     uint32_t size;
     uint8_t stat;

@@ -14,13 +14,12 @@
 DualDedupThd::DualDedupThd(AbsDatabase* fp_2_addr_db) {
     fp_2_addr_db_ = fp_2_addr_db;
     dedup_util_ = new DedupDetect(fp_2_addr_db_);
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-    FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+    extractor_ = new OdessSubfeatureExtractor();
 }
 
 DualDedupThd::~DualDedupThd() {
     delete dedup_util_;
-    delete finesse_util_;
+    delete extractor_;
 }
 
 /**
@@ -72,9 +71,8 @@ void DualDedupThd::Run(ClientVar* cur_client) {
                     gettimeofday(&_cipher_feature_stime, NULL);
 #endif
                         // compute the feature here
-                        finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
-                            input_data.data, input_data.info.size,
-                            input_data.info.features);
+                        extractor_->ExtractFeature(input_data.data,
+                            input_data.info.size, input_data.info.features);
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);
                     _total_cipher_feature_time += tool::GetTimeDiff(

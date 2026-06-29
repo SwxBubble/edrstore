@@ -91,10 +91,6 @@ void ClientVar::InitUploadBuffer() {
     _recv_chunk_buf.header->cur_item_num = 0;
     _recv_chunk_buf.data_buf = _recv_chunk_buf.send_buf + sizeof(NetworkHead_t);
     
-    // rabin fp
-    rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
-    rabin_util_->NewCtx(_rabin_ctx);
-
     // prepare the crypto
     _md_ctx = EVP_MD_CTX_new();
     _cipher_ctx = EVP_CIPHER_CTX_new();
@@ -137,7 +133,6 @@ void ClientVar::DestroyUploadBuffer() {
         _recipe_write_hdl.close();
     }
     free(_recipe_batch.buf);
-    rabin_util_->FreeCtx(_rabin_ctx);
     free(_recv_chunk_buf.send_buf);
     EVP_MD_CTX_free(_md_ctx);
     EVP_CIPHER_CTX_free(_cipher_ctx);
@@ -146,7 +141,6 @@ void ClientVar::DestroyUploadBuffer() {
     delete _recv_2_dual_mq;
     delete _dual_2_comp_mq;
     delete _comp_2_writer_mq;
-    delete rabin_util_;
     return ;
 }
 

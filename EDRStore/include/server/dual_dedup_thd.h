@@ -1,12 +1,12 @@
 /**
  * @file dual_dedup_thd.cc
  * @author Jia Zhao
- * @brief define the interfaces of DualDedupThd 
+ * @brief define the interfaces of DualDedupThd
  * @version 0.1
  * @date 2022-12-28
- * 
+ *
  * @copyright Copyright (c) 2022
- * 
+ *
  */
 
 #ifndef EDRSTORE_DUAL_DEDUP_H
@@ -15,7 +15,7 @@
 #include "../configure.h"
 #include "../database/db_factory.h"
 #include "../reduction/dedup_detect.h"
-#include "../chunker/finesse_util.h"
+#include "../chunker/odess_subfeature.h"
 #include "client_var.h"
 
 extern Configure config;
@@ -29,7 +29,7 @@ class DualDedupThd{
         DedupDetect* dedup_util_;
 
         // for feature computation
-        FinesseUtil* finesse_util_;
+        OdessSubfeatureExtractor* extractor_;
 
         // for fingerprinting
         CryptoUtil* crypto_util_;
@@ -44,7 +44,7 @@ class DualDedupThd{
         uint64_t _total_logical_chunk_num = 0;
         uint64_t _total_unique_data_size = 0;
         uint64_t _total_unique_chunk_num = 0;
-    
+
 #ifdef EDR_BREAKDOWN
         struct timeval _cipher_feature_stime;
         struct timeval _cipher_feature_etime;
@@ -62,7 +62,7 @@ class DualDedupThd{
 
         /**
          * @brief the main process
-         * 
+         *
          * @param cur_client current client var
          */
         void Run(ClientVar* cur_client);

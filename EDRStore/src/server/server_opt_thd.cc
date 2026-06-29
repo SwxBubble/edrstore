@@ -18,24 +18,24 @@
  * @param fp_2_addr_db the fp to address index
  * @param feature_2_fp_db the feature to base hash index
  */
-ServerOptThd::ServerOptThd(SSLConnection* server_channel, 
-    AbsDatabase* fp_2_addr_db, AbsDatabase* feature_2_fp_db) {
+ServerOptThd::ServerOptThd(SSLConnection* server_channel,
+    AbsDatabase* fp_2_addr_db, OdessSubfeatureIndex* feature_index) {
     server_channel_ = server_channel;
     fp_2_addr_db_ = fp_2_addr_db;
-    feature_2_fp_db_ = feature_2_fp_db;
+    feature_index_ = feature_index;
 
     // init the upload
     storage_core_ = new StorageCore();
-    
+
     data_recv_thd_ = new DataRecvThd(server_channel_, fp_2_addr_db_);
     cache_comp_thd_ = new CacheCompThd();
     data_writer_thd_ = new DataWriterThd(fp_2_addr_db_,
-        feature_2_fp_db_, storage_core_);
-    dual_dedup_thd_ = new DualDedupThd(fp_2_addr_db_); 
-    
+        feature_index_, storage_core_);
+    dual_dedup_thd_ = new DualDedupThd(fp_2_addr_db_);
+
     data_reader_thd_ = new DataReaderThd(fp_2_addr_db_, storage_core_);
     data_decode_thd_ = new DataDecoderThd(server_channel_);
-    
+
     this->LoadStat();
 }
 

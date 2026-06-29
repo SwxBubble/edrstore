@@ -4,165 +4,129 @@
  * @brief implement the interface of InformCache
  * @version 0.1
  * @date 2022-08-02
- * 
+ *
  * @copyright Copyright (c) 2022
- * 
+ *
  */
 
 #include "../../include/server/inform_cache.h"
 
-/**
- * @brief Construct a new InformCache object
- * 
- * @param client_id client id
- */
 InformCache::InformCache(uint32_t client_id) {
     client_id_ = client_id;
     cache_root_path_ = config.GetCacheRootPath();
+    feature_index_ = new OdessSubfeatureIndex();
     this->LoadCntIdx();
 
     DatabaseFactory db_factory;
     string db_path = cache_root_path_ + to_string(client_id_) + "_db";
-    base_2_data_db_ = db_factory.CreateDatabase(ROCKSDB_DB,
-        db_path);
-    
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-        FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
-    rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
-    rabin_util_->NewCtx(rabin_ctx_);
+    base_2_data_db_ = db_factory.CreateDatabase(ROCKSDB_DB, db_path);
 
-    similar_policy_ = new SimilarPolicy();
-
-    delta_comp_ = new DeltaComp(); 
+    delta_comp_ = new DeltaComp();
     cache_base_chunk_str_.reserve(ENC_MAX_CHUNK_SIZE);
 }
 
-/**
- * @brief Destroy the InformCache object
- * 
- */
 InformCache::~InformCache() {
     this->StoreCntIdx();
     delete base_2_data_db_;
-    delete finesse_util_;
-    rabin_util_->FreeCtx(rabin_ctx_);
-    delete similar_policy_;
     delete delta_comp_;
-    delete rabin_util_;
+    delete feature_index_;
 }
 
-/**
- * @brief process normal chunk
- * 
- * @param cache_chunk cache chunk
- */
 void InformCache::InsertCachedChunk(WrappedChunk_t* cache_chunk) {
-    // update the local feature index
-    string base_fp_str;
-    base_fp_str.assign((char*)cache_chunk->info.fp, CHUNK_HASH_SIZE);    
+    string base_fp_str((char*)cache_chunk->info.fp, CHUNK_HASH_SIZE);
 
-    similar_policy_->UpdateFeatureIndex(local_feature_2_fp_db_,
-        cache_chunk->info.features, base_fp_str);
-    
-    if (base_2_cnt_idx_.find(base_fp_str) != base_2_cnt_idx_.end()) {
-        base_2_cnt_idx_[base_fp_str].first += SUPER_FEATURE_PER_CHUNK;
+    feature_index_->Insert(cache_chunk->info.features, base_fp_str);
+
+    auto it = base_2_cnt_idx_.find(base_fp_str);
+    if (it != base_2_cnt_idx_.end()) {
+        it->second.first += SUB_FEATURE_PER_CHUNK;
     } else {
-        // insert to the kv-store
-        base_2_cnt_idx_[base_fp_str] = 
-            {SUPER_FEATURE_PER_CHUNK, cache_chunk->info.size};
+        base_2_cnt_idx_[base_fp_str] = {SUB_FEATURE_PER_CHUNK, cache_chunk->info.size};
         cache_base_chunk_str_.assign((char*)cache_chunk->data,
             cache_chunk->info.size);
         base_2_data_db_->Insert(base_fp_str, cache_base_chunk_str_);
     }
-
-    return ;
 }
 
-/**
- * @brief process normal chunk
- * 
- * @param input_chunk input chunk
- * @param output_chunk output chunk
- * @return true perform delta compression
- * @return false cannot perform delta compression
- */
 bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
     WrappedChunk_t* output_chunk) {
-    similar_policy_->FindBaseChunk(local_feature_2_fp_db_,
-        &input_chunk->info);
-    bool ret = false;
+    std::vector<std::string> candidates =
+        feature_index_->QueryTopK(input_chunk->info.features);
+    if (candidates.empty()) {
+        input_chunk->info.stat = NON_SIMILAR_CHUNK;
+        return false;
+    }
 
-    switch (input_chunk->info.stat) {
-        case SIMILAR_CHUNK: {
-            // fetch the base chunk
-            if (base_2_data_db_->QueryBuffer(
-                (char*)input_chunk->info.addr.base_fp,
-                CHUNK_HASH_SIZE, cache_base_chunk_str_)) {
-                output_chunk->info.size = delta_comp_->DeltaEncode(
-                    (uint8_t*)&cache_base_chunk_str_[0],
-                    cache_base_chunk_str_.size(), input_chunk->data, 
-                    input_chunk->info.size, output_chunk->data);
+    // Trial-encode against each candidate; keep the smallest delta. Decoder
+    // can recover only if it has the chosen base_fp, so we copy it back.
+    uint32_t best_size = UINT32_MAX;
+    std::string best_base_fp;
+    std::string trial_base;
+    trial_base.reserve(ENC_MAX_CHUNK_SIZE);
 
-                // copy the metadata to the input chunk 
-                memcpy(output_chunk->info.addr.base_fp,
-                    input_chunk->info.addr.base_fp, CHUNK_HASH_SIZE);
-                memcpy(output_chunk->info.fp, input_chunk->info.fp,
-                    CHUNK_HASH_SIZE);
-                output_chunk->info.stat = CACHE_DELTA_CHUNK;
-            } else {
-                tool::Logging(my_name_.c_str(), "cannot find the base "
-                    "chunk in the inform cache.\n");
-                exit(EXIT_FAILURE);
-            }
-            ret = true;
-            break;
+    std::vector<uint8_t> trial_delta_buf(ENC_MAX_CHUNK_SIZE);
+
+    for (const std::string& cand : candidates) {
+        if (!base_2_data_db_->QueryBuffer(
+                const_cast<char*>(cand.c_str()), CHUNK_HASH_SIZE, trial_base)) {
+            // Race / stale index entry: base evicted but feature edge survived.
+            // Skip; the next candidate may succeed.
+            continue;
         }
-        case NON_SIMILAR_CHUNK: {
-            ret = false;
-            break;
-        }
-        default: {
-            tool::Logging(my_name_.c_str(), "wrong chunk type "
-                "in inform cache.\n");
-            exit(EXIT_FAILURE);
+        uint32_t trial_size = delta_comp_->DeltaEncode(
+            (uint8_t*)trial_base.data(), trial_base.size(),
+            input_chunk->data, input_chunk->info.size,
+            trial_delta_buf.data());
+        if (trial_size < best_size) {
+            best_size = trial_size;
+            best_base_fp = cand;
+            memcpy(output_chunk->data, trial_delta_buf.data(), trial_size);
         }
     }
-    return ret;
+
+    if (best_base_fp.empty()) {
+        // All candidates were stale.
+        input_chunk->info.stat = NON_SIMILAR_CHUNK;
+        return false;
+    }
+
+    // Quality gate: voting alone (>=4/12) admits weak matches whose delta is
+    // barely smaller than the input. Reject when best_delta / input >
+    // NUMER/DENOM so downstream stores the chunk as a fresh base instead of
+    // paying delta+base overhead for no real saving.
+    if ((uint64_t)best_size * DELTA_REJECT_DENOM >
+            (uint64_t)input_chunk->info.size * DELTA_REJECT_NUMER) {
+        input_chunk->info.stat = NON_SIMILAR_CHUNK;
+        return false;
+    }
+
+    output_chunk->info.size = best_size;
+    memcpy(output_chunk->info.addr.base_fp, best_base_fp.data(), CHUNK_HASH_SIZE);
+    memcpy(output_chunk->info.fp, input_chunk->info.fp, CHUNK_HASH_SIZE);
+    output_chunk->info.stat = CACHE_DELTA_CHUNK;
+    input_chunk->info.stat = SIMILAR_CHUNK;
+    return true;
 }
 
-/**
- * @brief load cnt index
- * 
- */
 void InformCache::LoadCntIdx() {
     string cnt_idx_path = cache_root_path_ + to_string(client_id_) + "_cnt";
-    // check cache meta data exist
     ifstream cache_cnt_hdl;
     if (tool::FileExist(cnt_idx_path)) {
-        // check the file size
         cache_cnt_hdl.open(cnt_idx_path, ios_base::in | ios_base::binary);
         if (!cache_cnt_hdl.is_open()) {
             tool::Logging(my_name_.c_str(), "cannot open the cache cnt.\n");
             exit(EXIT_FAILURE);
         }
-
-        size_t start_size = cache_cnt_hdl.tellg();
         cache_cnt_hdl.seekg(0, ios_base::end);
         size_t file_size = cache_cnt_hdl.tellg();
-        file_size = file_size - start_size;
-
         if (file_size == 0) {
-            return ;
+            cache_cnt_hdl.close();
+            return;
         }
         cache_cnt_hdl.seekg(0, ios_base::beg);
 
-        // it exists in the client, read it
         size_t idx_item_num = 0;
         cache_cnt_hdl.read((char*)&idx_item_num, sizeof(size_t));
-        if (idx_item_num == 0) {
-            return ;
-        }
-
         string base_fp_str;
         base_fp_str.resize(CHUNK_HASH_SIZE, 0);
         uint32_t cnt;
@@ -173,15 +137,12 @@ void InformCache::LoadCntIdx() {
             cache_cnt_hdl.read((char*)&chunk_size, sizeof(uint32_t));
             base_2_cnt_idx_[base_fp_str] = {cnt, chunk_size};
         }
-
         cache_cnt_hdl.close();
     }
 
-    // -------- load local feature index --------
-    // check local feature index exits
+    // Restore the inverted index: file is a flat list of (slot, feature, base_fp).
+    string feature_idx_path = cache_root_path_ + to_string(client_id_) + "_idx";
     ifstream feature_idx_hdl;
-    string feature_idx_path = cache_root_path_ + to_string(client_id_) +
-        "_idx";
     if (tool::FileExist(feature_idx_path)) {
         feature_idx_hdl.open(feature_idx_path, ios_base::in | ios_base::binary);
         if (!feature_idx_hdl.is_open()) {
@@ -189,42 +150,31 @@ void InformCache::LoadCntIdx() {
                 "cannot open the cache feature index.\n");
             exit(EXIT_FAILURE);
         }
-
-        size_t start_size = feature_idx_hdl.tellg();
         feature_idx_hdl.seekg(0, ios_base::end);
         size_t file_size = feature_idx_hdl.tellg();
-        file_size = file_size - start_size;
-
         if (file_size == 0) {
-            return ;
+            feature_idx_hdl.close();
+            return;
         }
         feature_idx_hdl.seekg(0, ios_base::beg);
 
-        size_t feature_item_num = 0;
-        feature_idx_hdl.read((char*)&feature_item_num, sizeof(size_t));
-        if (feature_item_num == 0) {
-            return ;
-        }
+        size_t edge_num = 0;
+        feature_idx_hdl.read((char*)&edge_num, sizeof(size_t));
 
         string tmp_base_fp;
         tmp_base_fp.resize(CHUNK_HASH_SIZE, 0);
+        uint32_t slot;
         uint64_t feature;
-        for (size_t i = 0; i < feature_item_num; i++) {
+        for (size_t i = 0; i < edge_num; i++) {
+            feature_idx_hdl.read((char*)&slot, sizeof(uint32_t));
             feature_idx_hdl.read((char*)&feature, sizeof(uint64_t));
             feature_idx_hdl.read(&tmp_base_fp[0], CHUNK_HASH_SIZE);
-            local_feature_2_fp_db_[feature] = tmp_base_fp;
+            feature_index_->InsertEdge(slot, feature, tmp_base_fp);
         }
-
         feature_idx_hdl.close();
     }
-
-    return ;
 }
 
-/**
- * @brief store cnt index
- * 
- */
 void InformCache::StoreCntIdx() {
     string cnt_idx_path = cache_root_path_ + to_string(client_id_) + "_cnt";
     ofstream cache_cnt_hdl;
@@ -233,20 +183,16 @@ void InformCache::StoreCntIdx() {
         tool::Logging(my_name_.c_str(), "cannot init the cache cnt idx.\n");
         exit(EXIT_FAILURE);
     }
-
     size_t idx_item_num = base_2_cnt_idx_.size();
     cache_cnt_hdl.write((char*)&idx_item_num, sizeof(size_t));
-
-    for (auto it : base_2_cnt_idx_) {
+    for (auto& it : base_2_cnt_idx_) {
         cache_cnt_hdl.write(it.first.c_str(), CHUNK_HASH_SIZE);
         cache_cnt_hdl.write((char*)&it.second.first, sizeof(uint32_t));
         cache_cnt_hdl.write((char*)&it.second.second, sizeof(uint32_t));
     }
     cache_cnt_hdl.close();
 
-    // -------- store local feature index --------
-    string feature_idx_path = cache_root_path_ + to_string(client_id_) +
-        "_idx";
+    string feature_idx_path = cache_root_path_ + to_string(client_id_) + "_idx";
     ofstream feature_idx_hdl;
     feature_idx_hdl.open(feature_idx_path, ios_base::trunc | ios_base::binary);
     if (!feature_idx_hdl.is_open()) {
@@ -254,63 +200,41 @@ void InformCache::StoreCntIdx() {
             "cannot init the cache feature index.\n");
         exit(EXIT_FAILURE);
     }
-
-    size_t feature_item_num = local_feature_2_fp_db_.size();
-    feature_idx_hdl.write((char*)&feature_item_num, sizeof(size_t));
-
-    for (auto it : local_feature_2_fp_db_) {
-        feature_idx_hdl.write((char*)&it.first, sizeof(uint64_t));
-        feature_idx_hdl.write(it.second.c_str(),CHUNK_HASH_SIZE);
-    }
+    size_t edge_num = feature_index_->TotalEntries();
+    feature_idx_hdl.write((char*)&edge_num, sizeof(size_t));
+    feature_index_->ForEachEdge(
+        [&feature_idx_hdl](uint32_t slot, uint64_t feature, const std::string& base_fp) {
+            feature_idx_hdl.write((char*)&slot, sizeof(uint32_t));
+            feature_idx_hdl.write((char*)&feature, sizeof(uint64_t));
+            feature_idx_hdl.write(base_fp.c_str(), CHUNK_HASH_SIZE);
+        });
     feature_idx_hdl.close();
-
-    return ;
 }
 
-/**
- * @brief process evict chunk
- * 
- * @param evict_chunk evict_chunk
- */
 void InformCache::EvictCacheChunk(WrappedChunk_t* evict_chunk) {
+    // Client tells us "these feature values are no longer in my LRU window."
+    // For each feature, we pop one (feature, base_fp) edge from the index and
+    // decrement that base's reference count. When a count hits zero,
+    // DeleteEvictChunk will reap the base from RocksDB.
     uint32_t feature_num = evict_chunk->info.size;
     uint64_t* feature_ptr;
-    string base_fp_str;
 
     for (size_t i = 0; i < feature_num; i++) {
         feature_ptr = (uint64_t*)(evict_chunk->data + i * sizeof(uint64_t));
-        // check base chunk hash
-        auto find_base_ret = local_feature_2_fp_db_.find(*feature_ptr);
-        if (find_base_ret != local_feature_2_fp_db_.end()) {
-            auto find_cnt_ret = base_2_cnt_idx_.find(find_base_ret->second);
-            if (find_cnt_ret != base_2_cnt_idx_.end()) {
-                if (find_cnt_ret->second.first > 0) {
-                    find_cnt_ret->second.first--;
-                } else {
-                    find_cnt_ret->second.first = 0;
-                }
-            } else {
-                tool::Logging(my_name_.c_str(),
-                    "cannot find the evict chunk in count index.\n");
-                exit(EXIT_FAILURE);
-            }
-
-            local_feature_2_fp_db_.erase(*feature_ptr);
-        } else {
-            tool::Logging(my_name_.c_str(), "cannot find the evict feature"
-                "in local feature index.\n");
-            exit(EXIT_FAILURE);
+        std::string base_fp = feature_index_->PopOneOccurrence(*feature_ptr);
+        if (base_fp.empty()) {
+            continue;
+        }
+        auto cnt_it = base_2_cnt_idx_.find(base_fp);
+        if (cnt_it == base_2_cnt_idx_.end()) {
+            continue;
+        }
+        if (cnt_it->second.first > 0) {
+            cnt_it->second.first--;
         }
     }
-
-    return ;
 }
 
-/**
- * @brief delete evict chunk
- * 
- * @return total cache size
- */
 uint64_t InformCache::DeleteEvictChunk() {
     uint64_t total_cache_size = 0;
     auto it = base_2_cnt_idx_.begin();
@@ -323,40 +247,19 @@ uint64_t InformCache::DeleteEvictChunk() {
             it++;
         }
     }
-
     return total_cache_size;
 }
 
-
-/**
- * @brief check if req base chunk is exist
- * 
- * @param base_fp base chunk fp
- * @return true exist
- * @return false not exist
- */
 bool InformCache::IsBaseChunkExist(uint8_t* base_fp) {
-    string base_fp_str;
-    base_fp_str.assign((char*)base_fp, CHUNK_HASH_SIZE);
-    if (base_2_cnt_idx_.find(base_fp_str) != base_2_cnt_idx_.end()) {
-        return true;
-    } else {
-        return false;
-    }
+    string base_fp_str((char*)base_fp, CHUNK_HASH_SIZE);
+    return base_2_cnt_idx_.find(base_fp_str) != base_2_cnt_idx_.end();
 }
 
-/**
- * @brief fetch base chunk from cache
- * 
- * @param base_fp base chunk fp
- * @param output_base output base chunk <ret>
- * @return uint32_t output base chunk size
- */
 uint32_t InformCache::FetchBaseChunk(uint8_t* base_fp, uint8_t* output_base) {
-    string base_fp_str;
-    base_fp_str.assign((char*)base_fp, CHUNK_HASH_SIZE);
+    string base_fp_str((char*)base_fp, CHUNK_HASH_SIZE);
     if (!base_2_data_db_->Query(base_fp_str, cache_base_chunk_str_)) {
-        tool::Logging(my_name_.c_str(), "cannot find the base chunk in the cache.\n");
+        tool::Logging(my_name_.c_str(),
+            "cannot find the base chunk in the cache.\n");
         exit(EXIT_FAILURE);
     }
     uint32_t base_chunk_size = cache_base_chunk_str_.size();
@@ -364,11 +267,6 @@ uint32_t InformCache::FetchBaseChunk(uint8_t* base_fp, uint8_t* output_base) {
     return base_chunk_size;
 }
 
-/**
- * @brief Get the Cache Size object
- * 
- * @return uint64_t the cache size
- */
 uint64_t InformCache::GetCacheSize() {
-    return local_feature_2_fp_db_.size();
+    return feature_index_->TotalEntries();
 }

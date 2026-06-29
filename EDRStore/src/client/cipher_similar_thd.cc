@@ -1,43 +1,25 @@
 /**
  * @file cipher_similar_thd.cc
  * @author Zuoru YANG (zryang@cse.cuhk.edu.hk)
- * @brief 
+ * @brief
  * @version 0.1
  * @date 2022-06-29
- * 
+ *
  * @copyright Copyright (c) 2022
- * 
+ *
  */
 
 #include "../../include/client/cipher_similar_thd.h"
 
-/**
- * @brief Construct a new Cipher Similar Thd object
- * 
- */
 CipherSimilarThd::CipherSimilarThd() {
-    rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-        FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
-    rabin_util_->NewCtx(rabin_ctx_);
+    extractor_ = new OdessSubfeatureExtractor();
 }
 
-/**
- * @brief Destroy the Cipher Similar Thd object
- * 
- */
 CipherSimilarThd::~CipherSimilarThd() {
-    rabin_util_->FreeCtx(rabin_ctx_);
-    delete rabin_util_;
-    delete finesse_util_;
+    delete extractor_;
 }
 
-/**
- * @brief the main thread
- * 
- * @param input_MQ the input MQ
- */
-void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ, 
+void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
     AbsMQ<EncFeatureChunk_t>* output_MQ) {
     tool::Logging(my_name_.c_str(), "the main thread is running.\n");
 
@@ -46,30 +28,29 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
     double total_running_time = 0;
 
     gettimeofday(&stime, NULL);
-    // -------- main process --------
 
     EncFeatureChunk_t tmp_data;
     while (true) {
         if (input_MQ->_done && input_MQ->IsEmpty()) {
-            tool::Logging(my_name_.c_str(), "no chunk in the MQ, all jobs are done.\n"); 
+            tool::Logging(my_name_.c_str(), "no chunk in the MQ, all jobs are done.\n");
             break;
         }
 
         if (input_MQ->Pop(tmp_data)) {
-            // extract a chunk from the MQ
 #ifdef EDR_BREAKDOWN
             gettimeofday(&_cipher_feature_stime, NULL);
 #endif
 
             switch (tmp_data.feature_chunk.chunk.type) {
                 case NORMAL_CHUNK: {
-                    // re-use the plaintext feature buffer to store features of ciphertext chunk
-                    finesse_util_->ExtractFeature(rabin_ctx_, tmp_data.enc_data,
+                    // Re-use the plaintext feature buffer to store features of
+                    // the ciphertext chunk (server consumes these via
+                    // SendChunkHeader_t::cipher_features).
+                    extractor_->ExtractFeature(tmp_data.enc_data,
                         tmp_data.enc_size, tmp_data.feature_chunk.features);
-                    break;    
+                    break;
                 }
                 case RECIPE_CHUNK: {
-                    // do not need to compute the feature
                     break;
                 }
                 default: {
@@ -87,7 +68,6 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
             }
 #endif
 
-            // insert the chunk to the output MQ
             output_MQ->Push(tmp_data);
         }
     }
@@ -98,6 +78,4 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
 
     tool::Logging(my_name_.c_str(), "thread exits, total running time: %lf\n",
         total_running_time);
-    
-    return ;
 }

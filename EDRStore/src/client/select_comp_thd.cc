@@ -221,7 +221,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 // copy the cipher feature without re-computing them in the server side
                 memcpy(output_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                    sizeof(uint64_t) * SUB_FEATURE_PER_CHUNK);
 
                 // perform local compression and generate compressed
                 uint8_t compressed_data[ENC_MAX_CHUNK_SIZE];
@@ -257,7 +257,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 // copy the cipher feature of the cache chunk
                 memcpy(cache_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);  
+                    sizeof(uint64_t) * SUB_FEATURE_PER_CHUNK);  
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_comp_pad_stime, NULL);

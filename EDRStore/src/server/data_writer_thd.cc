@@ -1,46 +1,28 @@
 /**
  * @file data_writer_thd.cc
  * @author Zuoru YANG (zryang@cse.cuhk.edu.hk)
- * @brief implement the interfaces of DataWriterThd 
+ * @brief implement the interfaces of DataWriterThd
  * @version 0.1
  * @date 2022-07-22
- * 
+ *
  * @copyright Copyright (c) 2022
- * 
+ *
  */
 
 #include "../../include/server/data_writer_thd.h"
 
-/**
- * @brief Construct a new DataWriterThd object
- * 
- * @param fp_2_addr_db fp to chunk addr index
- * @param feature_2_fp_db feature to fp index
- * @param storage_core storage core
- */
 DataWriterThd::DataWriterThd(AbsDatabase* fp_2_addr_db,
-    AbsDatabase* feature_2_fp_db, StorageCore* storage_core) {
+    OdessSubfeatureIndex* feature_index, StorageCore* storage_core) {
     fp_2_addr_db_ = fp_2_addr_db;
-    feature_2_fp_db_ = feature_2_fp_db;
+    feature_index_ = feature_index;
     storage_core_ = storage_core;
     delta_comp_ = new DeltaComp();
-    similar_policy_ = new SimilarPolicy();
 }
 
-/**
- * @brief Destroy the DataWriterThd object
- * 
- */
 DataWriterThd::~DataWriterThd() {
     delete delta_comp_;
-    delete similar_policy_;
 }
 
-/**
- * @brief the main process
- * 
- * @param cur_client current client var
- */
 void DataWriterThd::Run(ClientVar* cur_client) {
     tool::Logging(my_name_.c_str(), "the main thread is running.\n");
     AbsMQ<WrappedChunk_t>* input_MQ = cur_client->_comp_2_writer_mq;
@@ -54,17 +36,15 @@ void DataWriterThd::Run(ClientVar* cur_client) {
     double total_proc_time = 0;
 
     gettimeofday(&stime, NULL);
-    // -------- main process --------
+
     WrappedChunk_t tmp_data;
     while (true) {
-        // extract a chunk from the MQ
         if (input_MQ->_done && input_MQ->IsEmpty()) {
             tool::Logging(my_name_.c_str(), "no chunk in the MQ, all jobs are done.\n");
             break;
         }
 
         if (input_MQ->Pop(tmp_data)) {
-            // check the base chunk
             gettimeofday(&proc_stime, NULL);
             switch (tmp_data.info.stat) {
                 case CACHE_DELTA_CHUNK: {
@@ -72,29 +52,39 @@ void DataWriterThd::Run(ClientVar* cur_client) {
                     break;
                 }
                 case UNIQUE_CHUNK: {
-                    similar_policy_->FindBaseChunk(feature_2_fp_db_,
-                        &tmp_data.info);
-                    switch (tmp_data.info.stat) {
-                        case SIMILAR_CHUNK: {
+                    // Global top-1 lookup: we use the highest-vote candidate.
+                    // We stay top-1 here (not top-K like InformCache) because
+                    // the global index resolves to disk-backed containers via
+                    // StorageCore::ReadChunk, where extra trial reads would
+                    // amplify I/O. InformCache (per-client RocksDB) is where
+                    // best-of-K trial happens cheaply.
+                    std::vector<std::string> candidates =
+                        feature_index_->QueryTopK(tmp_data.info.features);
+                    bool wrote_as_base = false;
+                    if (!candidates.empty()) {
+                        memcpy(tmp_data.info.addr.base_fp,
+                            candidates[0].data(), CHUNK_HASH_SIZE);
+                        tmp_data.info.stat = SIMILAR_CHUNK;
+                        bool encoded = this->ProcSimilarChunk(&tmp_data, cur_client);
+                        if (encoded) {
                             _total_similar_chunk_num++;
                             _total_similar_data_size += tmp_data.info.size;
-                            this->ProcSimilarChunk(&tmp_data, cur_client);
-                            break;
+                        } else {
+                            // Delta didn't fit; ProcSimilarChunk already wrote
+                            // the chunk as a fresh base. Fall through to index
+                            // it like a NON_SIMILAR_CHUNK.
+                            wrote_as_base = true;
                         }
-                        case NON_SIMILAR_CHUNK: {
+                    }
+                    if (candidates.empty() || wrote_as_base) {
+                        if (candidates.empty()) {
+                            tmp_data.info.stat = NON_SIMILAR_CHUNK;
                             this->ProcNonSimilarChunk(&tmp_data, cur_client);
-                            similar_policy_->UpdateFeatureIndex(
-                                feature_2_fp_db_,
-                                tmp_data.info.features,
-                                tmp_data.info.fp
-                            );
-                            break;
                         }
-                        default: {
-                            tool::Logging(my_name_.c_str(),
-                                "wrong unique chunk type.\n");
-                            exit(EXIT_FAILURE);
-                        }
+                        std::string base_fp_str(
+                            (char*)tmp_data.info.fp, CHUNK_HASH_SIZE);
+                        feature_index_->Insert(tmp_data.info.features,
+                            base_fp_str);
                     }
                     break;
                 }
@@ -108,7 +98,7 @@ void DataWriterThd::Run(ClientVar* cur_client) {
             // update the fp index
             fp_2_addr_db_->InsertBothBuffer((char*)tmp_data.info.fp, CHUNK_HASH_SIZE,
                 (char*)&tmp_data.info.addr, sizeof(KeyForChunkHashDB_t));
-            
+
             gettimeofday(&proc_etime, NULL);
             total_proc_time += tool::GetTimeDiff(proc_stime, proc_etime);
         }
@@ -124,17 +114,9 @@ void DataWriterThd::Run(ClientVar* cur_client) {
 
     tool::Logging(my_name_.c_str(), "thread exits, total proc time: %lf, "
         "total running time: %lf\n", total_proc_time, total_running_time);
-
-    return ;
 }
 
-/**
- * @brief process a similar chunk
- * 
- * @param input_chunk input chunk
- * @param cur_client current client
- */
-void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
+bool DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
     uint8_t base_chunk[ENC_MAX_CHUNK_SIZE];
     uint32_t base_chunk_size = 0;
@@ -144,10 +126,12 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     base_chunk_size = this->FetchBaseChunk(input_chunk->info.addr.base_fp,
         base_chunk, cur_client);
 
-    if(base_chunk_size == 0){
-        // avoid delta, directly write
+    if (base_chunk_size == 0) {
+        // base unreadable (e.g. stale index entry); fall back to writing as new
         storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-        input_chunk->info.size, cur_client);
+            input_chunk->info.size, cur_client);
+        input_chunk->info.addr.stat = COMP_BASE_CHUNK;
+        return false;
     }
 
 #ifdef EDR_BREAKDOWN
@@ -157,11 +141,28 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     delta_chunk_size = delta_comp_->DeltaEncode(base_chunk, base_chunk_size,
         input_chunk->data, input_chunk->info.size, delta_chunk);
 
+    bool reject = (delta_chunk_size == UINT32_MAX) ||
+        ((uint64_t)delta_chunk_size * DELTA_REJECT_DENOM >
+            (uint64_t)input_chunk->info.size * DELTA_REJECT_NUMER);
+    if (reject) {
+        // Either xdelta overflowed ENC_MAX_CHUNK_SIZE, or the delta isn't
+        // small enough to be worth the indirection. Write the chunk as a
+        // fresh base instead.
+        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
+            input_chunk->info.size, cur_client);
+        input_chunk->info.addr.stat = COMP_BASE_CHUNK;
+#ifdef EDR_BREAKDOWN
+        gettimeofday(&_comp_delta_etime, NULL);
+        _total_comp_delta_time += tool::GetTimeDiff(_comp_delta_stime,
+            _comp_delta_etime);
+#endif
+        return false;
+    }
+
     storage_core_->WriteChunk(&input_chunk->info.addr, delta_chunk,
         delta_chunk_size, cur_client);
     input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
 
-    // update stat
     _total_delta_size += delta_chunk_size;
 
 #ifdef EDR_BREAKDOWN
@@ -170,61 +171,36 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         _comp_delta_etime);
     _total_comp_delta_data_size += input_chunk->info.size;
 #endif
-
-    return ;
+    return true;
 }
 
-/**
- * @brief process a non-similar chunk 
- * 
- * @param input_chunk input chunk
- * @param cur_client current client
- */
 void DataWriterThd::ProcNonSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
     storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
         input_chunk->info.size, cur_client);
     input_chunk->info.addr.stat = COMP_BASE_CHUNK;
-    return ;
 }
 
-/**
- * @brief process a cache delta chunk
- * 
- * @param input_chunk input chunk
- * @param cur_client current client
- */
 void DataWriterThd::ProcCacheDeltaChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
     storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
         input_chunk->info.size, cur_client);
     input_chunk->info.addr.stat = CACHE_DELTA_CHUNK;
-    return ;
 }
 
-/**
- * @brief fetch the base chunk
- * 
- * @param base_fp base chunk fp
- * @param base_data base chunk data
- * @param cur_client current client
- * @return uint32_t base chunk size
- */
 uint32_t DataWriterThd::FetchBaseChunk(uint8_t* base_fp, uint8_t* base_data,
     ClientVar* cur_client) {
     string base_addr_str;
 
-    // step-1: query the fp index to get the base chunk address
     if (!fp_2_addr_db_->QueryBuffer((char*)base_fp, CHUNK_HASH_SIZE, base_addr_str)) {
         tool::Logging(my_name_.c_str(), "req base chunk not exits.\n");
-        exit(EXIT_FAILURE);
+        return 0;
     }
 
-    // step-2: read base chunk from the disk
     KeyForChunkHashDB_t* base_addr = (KeyForChunkHashDB_t*)&base_addr_str[0];
     bool read = storage_core_->ReadChunk(base_addr, base_data, cur_client);
-    
-    if(read == false){
+
+    if (read == false) {
         return 0;
     }
 

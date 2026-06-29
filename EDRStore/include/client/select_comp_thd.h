@@ -15,7 +15,6 @@
 #include "two_phase_enc.h"
 #include "comp_pad.h"
 #include "cache_meta.h"
-#include "../reduction/similar_policy.h"
 #include "../data_structure.h"
 #include "../message_queue/mq_factory.h"
 

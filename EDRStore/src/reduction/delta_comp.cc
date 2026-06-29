@@ -42,9 +42,12 @@ uint32_t DeltaComp::DeltaEncode(uint8_t* base_chunk, uint32_t base_size,
     int ret = xd3_encode_memory(input_chunk, input_size, base_chunk, base_size,
         delta_chunk, &ret_size, ENC_MAX_CHUNK_SIZE, delta_flag_);
     if (ret != 0) {
-        tool::Logging(my_name_.c_str(), "delta encoding fails: %d.\n",
-            ret);
-        exit(EXIT_FAILURE);
+        // ENOSPC (28) and similar bail-outs happen when the encoded delta would
+        // exceed ENC_MAX_CHUNK_SIZE - i.e. base and input are too dissimilar to
+        // be worth a delta. With odess-subfeature voting, weakly-matching bases
+        // can reach the trial loop and trip this path. Signal "not encodable"
+        // so the caller can fall back (try another candidate, or store fresh).
+        return UINT32_MAX;
     }
     return ret_size;
 }

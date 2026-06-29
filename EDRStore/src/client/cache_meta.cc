@@ -131,7 +131,7 @@ void CacheMeta::StoreCacheMeta() {
  * @param features input features
  */
 void CacheMeta::UpdateCacheMeta(uint64_t* features) {
-    for (size_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
+    for (size_t i = 0; i < SUB_FEATURE_PER_CHUNK; i++) {
         feature_2_version_idx_[features[i]] = cur_version_num_;
     }
     return ;
@@ -145,20 +145,25 @@ void CacheMeta::UpdateCacheMeta(uint64_t* features) {
  * @return false it is non-similar chunk
  */
 bool CacheMeta::QueryCacheMeta(uint64_t* features) {
-    bool is_similar = false;
-    for (size_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
+    // Vote across the 12 sub-features the same way the server-side InformCache
+    // does, so a "similar" hit here corresponds to one the server can actually
+    // satisfy with a delta. With an OR-match the client would over-report
+    // similar chunks and route them through FULL_EDR_UNCOMPRESS_CHUNK
+    // expecting the server to delta-encode; if the server misses, those
+    // uncompressed chunks land as fresh bases and balloon the storage.
+    uint32_t match_count = 0;
+    for (size_t i = 0; i < SUB_FEATURE_PER_CHUNK; i++) {
         if (feature_2_version_idx_.find(features[i]) !=
             feature_2_version_idx_.end()) {
-            // it exist in the index, update the version
             feature_2_version_idx_[features[i]] = cur_version_num_;
-            is_similar = true;
+            match_count++;
         }
     }
-    if (is_similar) {
+    if (match_count >= MIN_MATCH_FOR_SIMILAR) {
         _total_similar_chunk++;
+        return true;
     }
-
-    return is_similar;
+    return false;
 }
 
 /**

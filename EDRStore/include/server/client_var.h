@@ -18,7 +18,6 @@
 #include "../network/ssl_conn.h"
 #include "../crypto/crypto_util.h"
 #include "../readCache.h"
-#include "../chunker/rabin_poly.h"
 
 extern Configure config;
 
@@ -29,8 +28,6 @@ class ClientVar {
         uint64_t send_chunk_batch_size_;
         uint64_t send_recipe_batch_size_;
         string recipe_path_;
-
-        RabinFPUtil* rabin_util_;
 
         uint32_t MQ_TYPE_ = LCK_FREE_MQ;
         MQFactory<WrappedChunk_t> wrapped_chunk_mq_factory_;
@@ -76,7 +73,6 @@ class ClientVar {
 
         // upload var
         Container_t _cur_container;
-        RabinCtx_t _rabin_ctx;
         SendMsgBuffer_t _recv_chunk_buf;
         BatchBuf_t _recipe_batch;
         // AbsMQ<WrappedChunk_t>* _recv_2_comp_mq;

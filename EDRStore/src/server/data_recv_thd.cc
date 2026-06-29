@@ -24,8 +24,7 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
     dedup_util_ = new DedupDetect(fp_2_addr_db_);
     send_chunk_batch_size_ = config.GetSendChunkBatchSize();
     send_recipe_batch_size_ = config.GetSendRecipeBatchSize();
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-        FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
+    extractor_ = new OdessSubfeatureExtractor();
     crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
 }
 
@@ -35,7 +34,7 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
  */
 DataRecvThd::~DataRecvThd() {
     delete dedup_util_;
-    delete finesse_util_;
+    delete extractor_;
     delete crypto_util_;
 }
 
@@ -160,7 +159,7 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
 
                 // copy the cipher feature from the client
                 memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                    sizeof(uint64_t) * SUB_FEATURE_PER_CHUNK);
 
                 // mark this chunk is for cache insertion
                 tmp_chunk.info.stat = CACHE_INSERT_CHUNK;
@@ -261,7 +260,7 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 memcpy(tmp_chunk.data, chunk_data, tmp_chunk.info.size);
                 // copy the cipher feature from the client
                 memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                    sizeof(uint64_t) * SUB_FEATURE_PER_CHUNK);
                 output_MQ->Push(tmp_chunk);
 
                 this->ProcessRecipe(cur_client, tmp_chunk.info.fp);
@@ -317,9 +316,8 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
 #endif
 
                     // compute the feature here
-                    finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
-                        tmp_chunk.data, tmp_chunk.info.size,
-                        tmp_chunk.info.features);
+                    extractor_->ExtractFeature(tmp_chunk.data,
+                        tmp_chunk.info.size, tmp_chunk.info.features);
 
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);

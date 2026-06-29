@@ -10,7 +10,6 @@
  */
 
 #include "../../include/key_manager/basic_km.h"
-#include "../../include/database/db_factory.h"
 
 // to receive the interrupt
 #include <signal.h>
@@ -24,8 +23,6 @@ SSLConnection* km_channel;
 vector<boost::thread*> th_list;
 
 // the key manager main thread
-DatabaseFactory db_factory;
-AbsDatabase* feature_2_key_index;
 BasicKM* km_;
 
 string my_name = "KeyManager";
@@ -50,7 +47,6 @@ void CTRLC(int s) {
     tool::Logging(my_name.c_str(), "clear all key manager threads.\n");
 
     delete km_channel;
-    delete feature_2_key_index;
     tool::Logging(my_name.c_str(), "clear network connection.\n");
     cerr << "Max Memory usage: " << tool::GetMaxMemoryUsage() << "KB" << endl;
     exit(EXIT_SUCCESS);
@@ -75,10 +71,9 @@ int main(int argc, char* argv[]) {
     attrs.set_stack_size(THREAD_STACK_SIZE);
 
     // init
-    feature_2_key_index = db_factory.CreateDatabase(IN_MEMORY_DB, config.GetFeature2KeyDBName());
     km_channel = new SSLConnection(config.GetKeyServerIP(), config.GetKeyServerPort(),
         IN_SERVER_SIDE);
-    km_ = new BasicKM(km_channel, feature_2_key_index);
+    km_ = new BasicKM(km_channel);
 
     /**
      * |---------------------------------------|

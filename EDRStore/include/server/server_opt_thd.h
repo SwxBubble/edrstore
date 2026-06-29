@@ -32,6 +32,7 @@
 #include "../configure.h"
 #include "../reduction/dedup_detect.h"
 #include "../reduction/delta_comp.h"
+#include "../reduction/odess_subfeature_index.h"
 
 using namespace std;
 
@@ -61,7 +62,9 @@ class ServerOptThd {
 
         // for index
         AbsDatabase* fp_2_addr_db_;
-        AbsDatabase* feature_2_fp_db_;
+        // Global cipher sub-feature index; owned by ServerMain, shared across
+        // all clients via DataWriterThd.
+        OdessSubfeatureIndex* feature_index_;
 
         // locks for multiple clients
         unordered_map<int, boost::mutex*> client_lck_idx_;
@@ -121,8 +124,8 @@ class ServerOptThd {
          * @param fp_2_addr_db the fp to address index
          * @param feature_2_fp_db the feature to base hash index
          */
-        ServerOptThd(SSLConnection* server_channel, AbsDatabase* fp_2_addr_db, 
-            AbsDatabase* feature_2_fp_db);
+        ServerOptThd(SSLConnection* server_channel, AbsDatabase* fp_2_addr_db,
+            OdessSubfeatureIndex* feature_index);
 
         /**
          * @brief Destroy the ServerOptThd object

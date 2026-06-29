@@ -12,6 +12,7 @@
 #include "../../include/configure.h"
 #include "../../include/network/ssl_conn.h"
 #include "../../include/database/db_factory.h"
+#include "../../include/reduction/odess_subfeature_index.h"
 #include "../../include/server/server_opt_thd.h"
 
 // for the interrupt
@@ -25,7 +26,7 @@ Configure config("config.json");
 SSLConnection* server_channel;
 DatabaseFactory db_factory;
 AbsDatabase* fp_2_addr_db;
-AbsDatabase* feature_2_fp_db;
+OdessSubfeatureIndex* feature_index;
 vector<boost::thread*> thd_list;
 
 // the server main thread
@@ -54,7 +55,7 @@ void CTRLC(int s) {
     tool::Logging(my_name.c_str(), "clear all server threads.\n");
 
     delete fp_2_addr_db;
-    delete feature_2_fp_db;
+    delete feature_index;
     delete server_channel;
 
     tool::Logging(my_name.c_str(), "clear all DBs and network connection.\n");
@@ -82,15 +83,14 @@ int main(int argc, char* argv[]) {
 
     fp_2_addr_db = db_factory.CreateDatabase(IN_MEMORY_DB,
         config.GetFp2ChunkDBName());
-    feature_2_fp_db = db_factory.CreateDatabase(IN_MEMORY_DB,
-        config.GetFeature2FpDBName());
+    feature_index = new OdessSubfeatureIndex();
 
     server_channel = new SSLConnection(config.GetStorageServerIP(),
         config.GetStorageServerPort(), IN_SERVER_SIDE);
 
     // init
     server_opt_thd = new ServerOptThd(server_channel, fp_2_addr_db,
-        feature_2_fp_db);
+        feature_index);
 
     /**
      * |---------------------------------------|

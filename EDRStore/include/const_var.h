@@ -22,11 +22,20 @@ static const size_t MAX_CHUNK_SIZE = (1 << 14);
 static const uint32_t CHUNK_QUEUE_SIZE = (1024 * 4);
 static const size_t THREAD_STACK_SIZE = (8*1024*1024);
 
-// sketch & super-feature & feature settings
-static const uint32_t SUPER_FEATURE_PER_CHUNK = 3; // 3 super-feature per chunk 
-static const uint32_t FEATURE_PER_SUPER_FEATURE = 4; // 4 features per super-feature
-static const uint32_t FEATURE_PER_CHUNK = SUPER_FEATURE_PER_CHUNK * 
-    FEATURE_PER_SUPER_FEATURE; // 12 total features per chunk
+// odess sub-feature settings: 12 flat sub-features per chunk, voted across 12
+// independent inverted tables. See include/chunker/odess_subfeature.h and
+// include/reduction/odess_subfeature_index.h.
+static const uint32_t SUB_FEATURE_PER_CHUNK = 12;
+static const uint32_t MIN_MATCH_FOR_SIMILAR = 4;  // chunk is similar if >= 4 of 12 features match a base
+static const uint32_t TOP_K_CANDIDATES = 4;       // storage server trials this many bases, keeps smallest delta
+static const uint64_t ODESS_SAMPLE_MASK = 0x7FULL;  // sample ~1/128 bytes of the Gear rolling hash
+// Reject "similar" matches whose best delta is still > input * this ratio.
+// Finesse implicitly has this guarantee because it only ever trials one base;
+// odess's looser voting (>=4/12) admits weak candidates that produce poor
+// deltas, ballooning storage when accepted. Numerator/denominator form to keep
+// integer math: best_delta * 2 > input  =>  fallback to unique.
+static const uint32_t DELTA_REJECT_NUMER = 1;
+static const uint32_t DELTA_REJECT_DENOM = 2;
 
 // for rabin fingerprint
 static const uint64_t FINGERPRINT_PT = 0xbfe6b8a5bf378d83LL;
