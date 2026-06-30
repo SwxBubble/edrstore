@@ -281,16 +281,17 @@ void DataRetrieverThd::ProcessChunk(uint8_t* input_chunk, uint32_t size,
         }
         case SERVER_AIDED_MLE: {
             // perform decryption
-            mle_util_->DecChunk(input_chunk, size, tmp_key_recipe->key, output_chunk->data);
-            output_chunk->header.size = size;
+            output_chunk->header.size = mle_util_->DecChunk(input_chunk, size,
+                tmp_key_recipe->key, output_chunk->data);
             break;
         }
         case ENC_COMP_MLE: {
             uint8_t tmp_padding_chunk[ENC_MAX_CHUNK_SIZE];
-            mle_util_->DecChunk(input_chunk, size, tmp_key_recipe->key, tmp_padding_chunk);
+            uint32_t padding_size = mle_util_->DecChunk(input_chunk, size,
+                tmp_key_recipe->key, tmp_padding_chunk);
 
             output_chunk->header.size = comp_pad_->DecompressWithPad(
-                tmp_padding_chunk, size, output_chunk->data);
+                tmp_padding_chunk, padding_size, output_chunk->data);
 
             break;
         }

@@ -20,7 +20,6 @@ using namespace std;
 class MLE {
     private:
         string my_name_ = "MLE";
-        uint8_t iv_[CHUNK_HASH_SIZE];
         CryptoUtil* crypto_util_;
         EVP_CIPHER_CTX* cipher_ctx_; 
     
@@ -44,8 +43,9 @@ class MLE {
          * @param size the chunk size
          * @param key the enc key
          * @param enc_chunk the encrypted chunk
+         * @return uint32_t the encrypted chunk size
          */
-        void EncChunk(uint8_t* plain_chunk, uint32_t size, uint8_t* key,
+        uint32_t EncChunk(uint8_t* plain_chunk, uint32_t size, uint8_t* key,
             uint8_t* enc_chunk);
 
         /**
@@ -55,8 +55,9 @@ class MLE {
          * @param size the chunk size 
          * @param key the dec key
          * @param plain_chunk the plain chunk
+         * @return uint32_t the plain chunk size
          */
-        void DecChunk(uint8_t* enc_chunk, uint32_t size, uint8_t* key,
+        uint32_t DecChunk(uint8_t* enc_chunk, uint32_t size, uint8_t* key,
             uint8_t* plain_chunk);
 };
 

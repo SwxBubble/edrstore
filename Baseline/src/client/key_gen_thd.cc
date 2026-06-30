@@ -191,9 +191,9 @@ void KeyGenThd::ProcessBatch(AbsMQ<KeyGen2SelectComp_t>* output_MQ) {
                 cur_key_ret++;
 
                 // encrypt the chunk with MLE
-                mle_util_->EncChunk(chunk_buf_[i].raw_chunk.data, chunk_buf_[i].raw_chunk.size,
+                tmp_enc_chunk.enc_size = mle_util_->EncChunk(
+                    chunk_buf_[i].raw_chunk.data, chunk_buf_[i].raw_chunk.size,
                     tmp_enc_chunk.key, tmp_enc_chunk.enc_data);
-                tmp_enc_chunk.enc_size = chunk_buf_[i].raw_chunk.size;
 
                 memcpy(&tmp_enc_chunk.feature_chunk.chunk.raw_chunk,
                     &chunk_buf_[i].raw_chunk,

@@ -1,7 +1,7 @@
 /**
  * @file two_phase_enc.h
  * @author Zuoru YANG (zryang@cse.cuhk.edu.hk)
- * @brief define the interfaces of two-phase enc
+ * @brief define the ECB-only chunk encryption interface
  * @version 0.1
  * @date 2022-05-30
  * 
@@ -20,9 +20,7 @@ class TwoPhaseEnc {
         EVP_CIPHER_CTX* cipher_ctx_;
 
         // for crypto
-        CryptoUtil* crypto_util_ctr_;
         CryptoUtil* crypto_util_ecb_;
-        uint8_t iv_[CRYPTO_BLOCK_SIZE];
     public:
         /**
          * @brief Construct a new Two Phase Enc object
@@ -37,7 +35,7 @@ class TwoPhaseEnc {
         ~TwoPhaseEnc();
 
         /**
-         * @brief using two-phase to enc chunk
+         * @brief encrypt a chunk with AES-256-ECB
          * 
          * @param plain_chunk the plain chunk
          * @param size the chunk size
@@ -49,7 +47,7 @@ class TwoPhaseEnc {
             uint8_t* enc_chunk);
 
         /**
-         * @brief using two-phase to dec chunk
+         * @brief decrypt an AES-256-ECB chunk
          * 
          * @param enc_chunk the encrypted chunk
          * @param size the chunk size

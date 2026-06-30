@@ -16,16 +16,14 @@ Pipeline (mirrors EDRStore's m=2 mode at chunk granularity):
           Rabin-like sub-features) on the *plaintext*.
        b. Look up super-features in a global index. If any matches, use the
           matched chunk as base candidate; else mark this chunk as a new base.
-  4. For each (chunk, base) pair, compute three deltas via xdelta3:
+  4. For each (chunk, base) pair, compute two deltas via xdelta3:
        - delta_plain : xdelta3 on raw bytes
-       - delta_cipher: xdelta3 on AES-256-CTR(iv=0) + AES-256-ECB(key=K)
-                       output of both base and chunk; K is the same for
-                       (chunk, base) per server-aided MLE simulation.
-       - (optional) delta_ctr_only: skip the ECB stage
+       - delta_cipher: xdelta3 on AES-256-ECB(key=K) output of both base and
+                       chunk; K is the same for (chunk, base) per server-aided
+                       MLE simulation.
   5. Sum everything up and report:
        - storage with cipher-domain delta (matches EDRStore today)
        - storage with plaintext-domain delta (proposed direction)
-       - storage with CTR-only cipher delta (sanity check)
 
 Run:
     python3 delta_domain_compare.py \\
@@ -98,7 +96,6 @@ MIN_MATCH_FOR_SIMILAR = 4        # odess voting threshold
 ODESS_SAMPLE_MASK = 0x7F         # odess sampling: ~1/128 bytes
 GLOBAL_SECRET = b"\x01" * 32
 AES_KEY_LEN = 32  # AES-256
-IV_ZERO = b"\x00" * 16
 
 # Odess transform coefficients (matches Muti-delta-methods/feature/features.cpp)
 ODESS_M = [
@@ -128,7 +125,6 @@ class Stats:
     new_base_bytes_zstd: int = 0  # zstd-compressed bytes of new bases
     delta_plain_bytes: int = 0
     delta_cipher_bytes: int = 0
-    delta_ctr_only_bytes: int = 0
 
 
 class ProgressBar:
@@ -283,7 +279,7 @@ class OdessIndex:
             self._tables[i].setdefault(sf, []).append((fp, data))
 
 
-# -------- Encryption simulating EDRStore TwoPhaseEnc --------
+# -------- Encryption simulating EDRStore's ECB-only encryption --------
 def derive_key_from_fp(fp: bytes) -> bytes:
     """Key derived from the *base* chunk's fingerprint. Similar chunks reuse
     the base's key, so the keystream is identical between base and target —
@@ -292,22 +288,14 @@ def derive_key_from_fp(fp: bytes) -> bytes:
 
 
 def ecb_pad(data: bytes) -> bytes:
-    pad_len = (-len(data)) % 16
-    return data + b"\x00" * pad_len
+    pad_len = 16 - (len(data) % 16)
+    return data + bytes([pad_len]) * pad_len
 
 
-def encrypt_two_phase(data: bytes, key: bytes) -> bytes:
-    """AES-256-CTR(iv=0) then AES-256-ECB(key), matching TwoPhaseEnc.cc."""
-    ctr = AES.new(key, AES.MODE_CTR, nonce=b"", initial_value=IV_ZERO)
-    tmp = ctr.encrypt(data)
+def encrypt_ecb(data: bytes, key: bytes) -> bytes:
+    """AES-256-ECB with PKCS#7 padding, matching TwoPhaseEnc.cc."""
     ecb = AES.new(key, AES.MODE_ECB)
-    return ecb.encrypt(ecb_pad(tmp))
-
-
-def encrypt_ctr_only(data: bytes, key: bytes) -> bytes:
-    """CTR alone - preserves byte-level similarity (sanity baseline)."""
-    ctr = AES.new(key, AES.MODE_CTR, nonce=b"", initial_value=IV_ZERO)
-    return ctr.encrypt(data)
+    return ecb.encrypt(ecb_pad(data))
 
 
 # -------- xdelta3 wrapper --------
@@ -342,8 +330,7 @@ def zstd_size(data: bytes) -> int:
 
 
 # -------- Main pipeline --------
-def process_files(paths: List[str], feature: str,
-                  do_ctr_only: bool = False) -> Stats:
+def process_files(paths: List[str], feature: str) -> Stats:
     stats = Stats()
     seen_fps: Dict[bytes, None] = {}
     progress = ProgressBar(sum(os.path.getsize(path) for path in paths))
@@ -407,16 +394,10 @@ def process_files(paths: List[str], feature: str,
 
                 # Key derivation: similar chunks share base's key (MLE).
                 key = derive_key_from_fp(base_fp)
-                base_cipher = encrypt_two_phase(base_data, key)
-                input_cipher = encrypt_two_phase(data, key)
+                base_cipher = encrypt_ecb(base_data, key)
+                input_cipher = encrypt_ecb(data, key)
                 d_cipher = xdelta_size(base_cipher, input_cipher)
                 stats.delta_cipher_bytes += d_cipher
-
-                if do_ctr_only:
-                    base_ctr = encrypt_ctr_only(base_data, key)
-                    input_ctr = encrypt_ctr_only(data, key)
-                    stats.delta_ctr_only_bytes += xdelta_size(base_ctr,
-                                                              input_ctr)
 
                 # Account zstd cost as if it were a fresh base (worst case).
                 stats.unique_bytes_zstd += zstd_size(data)
@@ -430,7 +411,7 @@ def fmt_mb(n: int) -> str:
     return f"{n/1e6:.2f} MB"
 
 
-def report(stats: Stats, do_ctr_only: bool, feature: str) -> None:
+def report(stats: Stats, feature: str) -> None:
     print(f"\n=== Aggregate stats (feature={feature}) ===")
     print(f"logical chunks       : {stats.total_logical_chunks:,}")
     print(f"logical bytes        : {fmt_mb(stats.total_logical_bytes)}")
@@ -445,15 +426,10 @@ def report(stats: Stats, do_ctr_only: bool, feature: str) -> None:
     print("\n=== Delta sizes (only similar chunks) ===")
     print(f"delta_plain          : {fmt_mb(stats.delta_plain_bytes)}")
     print(f"delta_cipher (EDR)   : {fmt_mb(stats.delta_cipher_bytes)}")
-    if do_ctr_only:
-        print(f"delta_ctr_only       : {fmt_mb(stats.delta_ctr_only_bytes)}")
     if stats.similar_input_bytes > 0:
         rp = stats.delta_plain_bytes / stats.similar_input_bytes
         rc = stats.delta_cipher_bytes / stats.similar_input_bytes
         print(f"delta/input ratio    : plain={rp:.1%}  cipher={rc:.1%}")
-        if do_ctr_only:
-            rct = stats.delta_ctr_only_bytes / stats.similar_input_bytes
-            print(f"                       ctr_only={rct:.1%}")
 
     # Final storage comparison
     print("\n=== End-to-end storage (zstd-compressed bases + deltas) ===")
@@ -474,12 +450,9 @@ def main() -> None:
     ap.add_argument("--feature", choices=["finesse", "odess"],
                     default="finesse",
                     help="base-selection algorithm (default: finesse)")
-    ap.add_argument("--ctr-only", action="store_true",
-                    help="also measure CTR-only encryption (no ECB stage)")
     args = ap.parse_args()
-    stats = process_files(args.files, feature=args.feature,
-                          do_ctr_only=args.ctr_only)
-    report(stats, do_ctr_only=args.ctr_only, feature=args.feature)
+    stats = process_files(args.files, feature=args.feature)
+    report(stats, feature=args.feature)
 
 
 if __name__ == "__main__":

@@ -168,22 +168,6 @@ uint32_t CryptoUtil::EncryptWithKeyIV(EVP_CIPHER_CTX* ctx, uint8_t* data, uint32
             EVP_EncryptUpdate(ctx, NULL, &cipher_len, gcm_aad, sizeof(gcm_aad));
             break;
         }
-        case AES_256_CTR: {
-            if (!EVP_EncryptInit_ex(ctx, EVP_aes_256_ctr(), NULL,
-                key, iv)) {
-                tool::Logging(my_name_.c_str(), "init error.\n");
-                exit(EXIT_FAILURE);
-            } 
-            break;
-        }
-        case AES_128_CTR: {
-            if (!EVP_EncryptInit_ex(ctx, EVP_aes_128_ctr(), NULL,
-                key, iv)) {
-                tool::Logging(my_name_.c_str(), "init error.\n");
-                exit(EXIT_FAILURE);
-            }
-            break;
-        }
         case AES_256_ECB: {
             if (!EVP_EncryptInit_ex(ctx, EVP_aes_256_ecb(), NULL,
                 key, NULL)) {
@@ -289,22 +273,6 @@ uint32_t CryptoUtil::DecryptWithKeyIV(EVP_CIPHER_CTX* ctx, uint8_t* cipher, cons
                 exit(EXIT_FAILURE);
             }
             EVP_DecryptUpdate(ctx, NULL, &plain_len, gcm_aad, sizeof(gcm_aad));
-            break;
-        }
-        case AES_256_CTR: {
-            if (!EVP_DecryptInit_ex(ctx, EVP_aes_256_ctr(), NULL,
-                key, iv)) {
-                tool::Logging(my_name_.c_str(), "init error.\n");
-                exit(EXIT_FAILURE);
-            }
-            break;
-        }
-        case AES_128_CTR: {
-            if (!EVP_DecryptInit_ex(ctx, EVP_aes_128_ctr(), NULL,
-                key, iv)) {
-                tool::Logging(my_name_.c_str(), "init error.\n");
-                exit(EXIT_FAILURE);
-            }
             break;
         }
         case AES_256_ECB: {

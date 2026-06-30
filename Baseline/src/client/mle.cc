@@ -16,7 +16,6 @@
  * 
  */
 MLE::MLE() {
-    memset(iv_, 0, CHUNK_HASH_SIZE);
     crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
     cipher_ctx_ = EVP_CIPHER_CTX_new();
 }
@@ -37,12 +36,12 @@ MLE::~MLE() {
  * @param size the chunk size
  * @param key the enc key
  * @param enc_chunk the encrypted chunk
+ * @return uint32_t the encrypted chunk size
  */
-void MLE::EncChunk(uint8_t* plain_chunk, uint32_t size, uint8_t* key,
+uint32_t MLE::EncChunk(uint8_t* plain_chunk, uint32_t size, uint8_t* key,
     uint8_t* enc_chunk) {
-    crypto_util_->EncryptWithKeyIV(cipher_ctx_, plain_chunk, size,
-        key, iv_, enc_chunk);
-    return ;
+    return crypto_util_->EncryptWithKeyIV(cipher_ctx_, plain_chunk, size,
+        key, nullptr, enc_chunk);
 }
 
 /**
@@ -52,10 +51,10 @@ void MLE::EncChunk(uint8_t* plain_chunk, uint32_t size, uint8_t* key,
  * @param size the chunk size 
  * @param key the dec key
  * @param plain_chunk the plain chunk
+ * @return uint32_t the plain chunk size
  */
-void MLE::DecChunk(uint8_t* enc_chunk, uint32_t size, uint8_t* key,
+uint32_t MLE::DecChunk(uint8_t* enc_chunk, uint32_t size, uint8_t* key,
     uint8_t* plain_chunk) {
-    crypto_util_->DecryptWithKeyIV(cipher_ctx_, enc_chunk, size,
-        key, iv_, plain_chunk);
-    return ;
+    return crypto_util_->DecryptWithKeyIV(cipher_ctx_, enc_chunk, size,
+        key, nullptr, plain_chunk);
 }

@@ -105,9 +105,9 @@ void SelectCompThd::Run(AbsMQ<KeyGen2SelectComp_t>* input_MQ,
 
                             // enc the chunk
                             tmp_send_chunk.send_chunk.header.type = NORMAL_CHUNK;
-                            tmp_send_chunk.send_chunk.header.size = tmp_w_padding_size;
-                            mle_util_->EncChunk(tmp_compressed_chunk, tmp_w_padding_size,
-                                tmp_data.key, tmp_send_chunk.send_chunk.data);
+                            tmp_send_chunk.send_chunk.header.size = mle_util_->EncChunk(
+                                tmp_compressed_chunk, tmp_w_padding_size, tmp_data.key,
+                                tmp_send_chunk.send_chunk.data);
 
                             // update the key recipe
                             memcpy(tmp_send_chunk.key_recipe.key, tmp_data.key, CHUNK_HASH_SIZE);
