@@ -92,6 +92,9 @@ void DualDedupThd::Run(ClientVar* cur_client) {
                         // update stat
                         _total_unique_chunk_num++;
                         _total_unique_data_size += input_data.info.size;
+                    } else {
+                        cur_client->DiscardFallbackChunk(
+                            input_data.info.transient_id);
                     }
                     
                     break;
@@ -119,6 +122,9 @@ void DualDedupThd::Run(ClientVar* cur_client) {
                         // update stat
                         _total_unique_chunk_num++;
                         _total_unique_data_size += input_data.info.size;
+                    } else {
+                        cur_client->DiscardFallbackChunk(
+                            input_data.info.transient_id);
                     }
 
                     break;

@@ -33,6 +33,9 @@ class InformCache {
         // record the reference count <cnt, chunk size>
         unordered_map<string, pair<uint32_t,uint32_t>> base_2_cnt_idx_;
         unordered_map<uint64_t, string> local_feature_2_fp_db_;
+        // CacheComp and DataWriter may both access the informed cache after
+        // the global-delta fallback path is enabled.
+        mutable mutex cache_lck_;
 
         // for feature computation
         FinesseUtil* finesse_util_;

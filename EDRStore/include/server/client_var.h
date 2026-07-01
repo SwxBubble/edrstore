@@ -36,6 +36,13 @@ class ClientVar {
         MQFactory<WrappedChunk_t> wrapped_chunk_mq_factory_;
         MQFactory<Reader2Decoder_t> reader_2_decoder_mq_factory_;
 
+        // Full EDR sends both U=Enc(plain) and C=Enc(CompressPad(plain)).
+        // Only U travels through the large server queues; C is kept here
+        // until DataWriter decides between delta storage and base storage.
+        mutex fallback_chunk_lck_;
+        unordered_map<uint64_t, string> fallback_chunk_store_;
+        uint64_t next_transient_id_ = 1;
+
         /**
          * @brief init the var related to the upload
          * 
@@ -93,6 +100,19 @@ class ClientVar {
         SSL* _client_ssl; // SSL connection
 
         uint64_t* _total_cache_size;
+
+        // Per-upload counters. They remain request-local so concurrent
+        // clients do not pollute one another's log rows.
+        ReductionStats_t _reduction_stats = {0, 0, 0};
+
+        /** Store a compressed companion and return its request-local id. */
+        uint64_t StoreFallbackChunk(const uint8_t* data, uint32_t size);
+
+        /** Take and erase a compressed companion. */
+        bool TakeFallbackChunk(uint64_t transient_id, string& data);
+
+        /** Erase a companion that is no longer needed. */
+        void DiscardFallbackChunk(uint64_t transient_id);
 
         /**
          * @brief Construct a new Client Var object

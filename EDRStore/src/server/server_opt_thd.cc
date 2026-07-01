@@ -232,10 +232,11 @@ void ServerOptThd::Run(SSL* client_ssl) {
 
     // clean up client variables
     uint64_t total_cache_size = 0;
+    ReductionStats_t reduction_stats = cur_client->_reduction_stats;
     cur_client->_total_cache_size = &total_cache_size;
     delete cur_client;
     if (opt_type == UPLOAD_OPT) {
-        this->PrintClientLog(total_cache_size);
+        this->PrintClientLog(total_cache_size, client_id, reduction_stats);
     }
     free(recv_buf.send_buf);
     this->UnlockClientID(client_id);
@@ -450,8 +451,11 @@ void ServerOptThd::StoreStat() {
  * @brief print the info of curClient
  * 
  * @param total_cache_size total cache size
+ * @param client_id request client id
+ * @param reduction_stats per-upload effective delta counters
  */
-void ServerOptThd::PrintClientLog(uint64_t total_cache_size) {
+void ServerOptThd::PrintClientLog(uint64_t total_cache_size,
+    uint32_t client_id, const ReductionStats_t& reduction_stats) {
     ofstream server_log_hdl;
     bool is_first_server_log = !(tool::FileExist(server_log_name_));
     server_log_hdl.open(server_log_name_, ios_base::app | ios_base::out);
@@ -481,6 +485,34 @@ void ServerOptThd::PrintClientLog(uint64_t total_cache_size) {
             << total_cache_size << endl;
         server_log_hdl.close();
     }
+
+    ofstream delta_log_hdl;
+    bool is_first_delta_log = !(tool::FileExist(server_delta_log_name_));
+    delta_log_hdl.open(server_delta_log_name_, ios_base::app | ios_base::out);
+    if (delta_log_hdl.is_open()) {
+        if (is_first_delta_log) {
+            delta_log_hdl << "client id, effective cache delta chunks, "
+                << "effective global delta chunks, effective delta chunks, "
+                << "global delta fallback chunks" << endl;
+        }
+        delta_log_hdl << client_id << ", "
+            << reduction_stats.effective_cache_delta_chunk_num << ", "
+            << reduction_stats.effective_global_delta_chunk_num << ", "
+            << reduction_stats.effective_cache_delta_chunk_num +
+                reduction_stats.effective_global_delta_chunk_num << ", "
+            << reduction_stats.global_delta_fallback_chunk_num << endl;
+        delta_log_hdl.close();
+    }
+
+    tool::Logging(my_name_.c_str(),
+        "client %u effective delta chunks: cache=%lu, global=%lu, "
+        "total=%lu; global delta fallbacks=%lu.\n",
+        client_id,
+        reduction_stats.effective_cache_delta_chunk_num,
+        reduction_stats.effective_global_delta_chunk_num,
+        reduction_stats.effective_cache_delta_chunk_num +
+            reduction_stats.effective_global_delta_chunk_num,
+        reduction_stats.global_delta_fallback_chunk_num);
 
 #ifdef EDR_BREAKDOWN
     string server_breakdown_file_name = "breakdown-server-file";

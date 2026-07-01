@@ -57,34 +57,71 @@ InformCache::~InformCache() {
  * @param cache_chunk cache chunk
  */
 void InformCache::InsertCachedChunk(WrappedChunk_t* cache_chunk) {
+    lock_guard<mutex> lck(cache_lck_);
     // update the local feature index
     string base_fp_str;
-    base_fp_str.assign((char*)cache_chunk->info.fp, CHUNK_HASH_SIZE);    
+    base_fp_str.assign((char*)cache_chunk->info.fp, CHUNK_HASH_SIZE);
+
+    vector<uint64_t> visible_features;
+    if (cache_chunk->info.cdfe_feature_num > 0) {
+        visible_features.reserve(cache_chunk->info.cdfe_feature_num);
+        for (uint32_t i = 0; i < cache_chunk->info.cdfe_feature_num; i++) {
+            visible_features.push_back(
+                cache_chunk->info.cdfe_features[i].value);
+        }
+    } else {
+        visible_features.assign(cache_chunk->info.features,
+            cache_chunk->info.features + SUPER_FEATURE_PER_CHUNK);
+    }
+
+    sort(visible_features.begin(), visible_features.end());
+    visible_features.erase(unique(visible_features.begin(),
+        visible_features.end()), visible_features.end());
+
+    unordered_map<uint64_t, string> previous_feature_owners;
+    for (uint64_t feature : visible_features) {
+        auto old_ret = local_feature_2_fp_db_.find(feature);
+        if (old_ret != local_feature_2_fp_db_.end()) {
+            previous_feature_owners[feature] = old_ret->second;
+        }
+    }
 
     similar_policy_->UpdateFeatureIndex(local_feature_2_fp_db_,
         &cache_chunk->info);
 
-    uint32_t feature_count = SUPER_FEATURE_PER_CHUNK;
     if (cache_chunk->info.cdfe_feature_num > 0) {
-        feature_count = cache_chunk->info.cdfe_feature_num;
-
         // Eviction metadata uses feature values, so keep the visible local
         // map in the same feature namespace as client cache metadata.
         for (size_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
             local_feature_2_fp_db_.erase(cache_chunk->info.features[i]);
         }
-        for (uint32_t i = 0; i < cache_chunk->info.cdfe_feature_num; i++) {
-            local_feature_2_fp_db_[cache_chunk->info.cdfe_features[i].value] =
-                base_fp_str;
-        }
     }
-    
+
+    uint32_t new_reference_count = 0;
+    for (uint64_t feature : visible_features) {
+        auto old_ret = previous_feature_owners.find(feature);
+        if (old_ret != previous_feature_owners.end() &&
+            old_ret->second != base_fp_str) {
+            auto old_count_ret = base_2_cnt_idx_.find(old_ret->second);
+            if (old_count_ret != base_2_cnt_idx_.end() &&
+                old_count_ret->second.first > 0) {
+                old_count_ret->second.first--;
+            }
+        }
+
+        if (old_ret == previous_feature_owners.end() ||
+            old_ret->second != base_fp_str) {
+            new_reference_count++;
+        }
+        local_feature_2_fp_db_[feature] = base_fp_str;
+    }
+
     if (base_2_cnt_idx_.find(base_fp_str) != base_2_cnt_idx_.end()) {
-        base_2_cnt_idx_[base_fp_str].first += feature_count;
+        base_2_cnt_idx_[base_fp_str].first += new_reference_count;
     } else {
         // insert to the kv-store
         base_2_cnt_idx_[base_fp_str] = 
-            {feature_count, cache_chunk->info.size};
+            {new_reference_count, cache_chunk->info.size};
         cache_base_chunk_str_.assign((char*)cache_chunk->data,
             cache_chunk->info.size);
         base_2_data_db_->Insert(base_fp_str, cache_base_chunk_str_);
@@ -103,6 +140,7 @@ void InformCache::InsertCachedChunk(WrappedChunk_t* cache_chunk) {
  */
 bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
     WrappedChunk_t* output_chunk) {
+    lock_guard<mutex> lck(cache_lck_);
     similar_policy_->FindBaseChunk(local_feature_2_fp_db_,
         &input_chunk->info);
     bool ret = false;
@@ -122,7 +160,10 @@ bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
                     break;
                 }
 
-                if (output_chunk->info.size >= input_chunk->info.size * 0.2) {
+                // A delta is effective only when it is strictly below 20%.
+                // Integer arithmetic keeps the equality boundary exact.
+                if (static_cast<uint64_t>(output_chunk->info.size) * 5 >=
+                    input_chunk->info.size) {
                     ret = false;
                     break;
                 }
@@ -297,6 +338,7 @@ void InformCache::StoreCntIdx() {
  * @param evict_chunk evict_chunk
  */
 void InformCache::EvictCacheChunk(WrappedChunk_t* evict_chunk) {
+    lock_guard<mutex> lck(cache_lck_);
     uint32_t feature_num = evict_chunk->info.size;
     uint64_t* feature_ptr;
     string base_fp_str;
@@ -334,6 +376,7 @@ void InformCache::EvictCacheChunk(WrappedChunk_t* evict_chunk) {
  * @return total cache size
  */
 uint64_t InformCache::DeleteEvictChunk() {
+    lock_guard<mutex> lck(cache_lck_);
     uint64_t total_cache_size = 0;
     auto it = base_2_cnt_idx_.begin();
     while (it != base_2_cnt_idx_.end()) {
@@ -358,6 +401,7 @@ uint64_t InformCache::DeleteEvictChunk() {
  * @return false not exist
  */
 bool InformCache::IsBaseChunkExist(uint8_t* base_fp) {
+    lock_guard<mutex> lck(cache_lck_);
     string base_fp_str;
     base_fp_str.assign((char*)base_fp, CHUNK_HASH_SIZE);
     if (base_2_cnt_idx_.find(base_fp_str) != base_2_cnt_idx_.end()) {
@@ -375,6 +419,7 @@ bool InformCache::IsBaseChunkExist(uint8_t* base_fp) {
  * @return uint32_t output base chunk size
  */
 uint32_t InformCache::FetchBaseChunk(uint8_t* base_fp, uint8_t* output_base) {
+    lock_guard<mutex> lck(cache_lck_);
     string base_fp_str;
     base_fp_str.assign((char*)base_fp, CHUNK_HASH_SIZE);
     if (!base_2_data_db_->Query(base_fp_str, cache_base_chunk_str_)) {
@@ -392,5 +437,6 @@ uint32_t InformCache::FetchBaseChunk(uint8_t* base_fp, uint8_t* output_base) {
  * @return uint64_t the cache size
  */
 uint64_t InformCache::GetCacheSize() {
+    lock_guard<mutex> lck(cache_lck_);
     return local_feature_2_fp_db_.size();
 }

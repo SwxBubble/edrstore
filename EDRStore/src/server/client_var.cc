@@ -73,6 +73,39 @@ ClientVar::~ClientVar() {
     }
 }
 
+uint64_t ClientVar::StoreFallbackChunk(const uint8_t* data, uint32_t size) {
+    lock_guard<mutex> lck(fallback_chunk_lck_);
+    uint64_t transient_id = next_transient_id_++;
+    fallback_chunk_store_[transient_id].assign((const char*)data, size);
+    return transient_id;
+}
+
+bool ClientVar::TakeFallbackChunk(uint64_t transient_id, string& data) {
+    if (transient_id == 0) {
+        return false;
+    }
+
+    lock_guard<mutex> lck(fallback_chunk_lck_);
+    auto find_ret = fallback_chunk_store_.find(transient_id);
+    if (find_ret == fallback_chunk_store_.end()) {
+        return false;
+    }
+
+    data.swap(find_ret->second);
+    fallback_chunk_store_.erase(find_ret);
+    return true;
+}
+
+void ClientVar::DiscardFallbackChunk(uint64_t transient_id) {
+    if (transient_id == 0) {
+        return;
+    }
+
+    lock_guard<mutex> lck(fallback_chunk_lck_);
+    fallback_chunk_store_.erase(transient_id);
+    return;
+}
+
 /**
  * @brief init the var related to the upload
  * 

@@ -41,6 +41,7 @@ class ServerOptThd {
     private:
         string my_name_ = "ServerOptThd";
         string server_log_name_ = "server-log";
+        string server_delta_log_name_ = "server-delta-log";
         string persist_stat_name_ = "persist-stat";
 
         // for storage server connection channel
@@ -107,8 +108,11 @@ class ServerOptThd {
          * @brief print the info of curClient
          * 
          * @param total_cache_size total cache size
+         * @param client_id request client id
+         * @param reduction_stats per-upload effective delta counters
          */
-        void PrintClientLog(uint64_t total_cache_size);
+        void PrintClientLog(uint64_t total_cache_size, uint32_t client_id,
+            const ReductionStats_t& reduction_stats);
 
     public:
         uint64_t _total_upload_opt_num = 0;

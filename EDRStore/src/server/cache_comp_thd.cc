@@ -71,6 +71,7 @@ void CacheCompThd::Run(ClientVar* cur_client) {
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cache_delta_stime, NULL);
 #endif
+                    memset(&output_data, 0, sizeof(WrappedChunk_t));
                     bool is_similar = inform_cache->ProcessNormalChunk(&input_data,
                         &output_data);
 
@@ -83,10 +84,14 @@ void CacheCompThd::Run(ClientVar* cur_client) {
 
                     if(is_similar) {
                         // similar chunk
+                        output_data.info.transient_id =
+                            input_data.info.transient_id;
                         output_MQ->Push(output_data);
                         _total_similar_chunk_num++;
                         _total_similar_data_size += input_data.info.size;
                         _total_delta_size += output_data.info.size;
+                        cur_client->_reduction_stats.
+                            effective_cache_delta_chunk_num++;
                     } else {
                         // Non-similar in the local cache is still a valid
                         // unique chunk for the global storage path.

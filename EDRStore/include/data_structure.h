@@ -138,6 +138,9 @@ typedef struct {
     KeyForChunkHashDB_t addr;
     uint32_t size;
     uint8_t stat;
+    // Request-local identifier for the compressed companion of a Full EDR
+    // chunk. Zero means that no companion representation is available.
+    uint64_t transient_id;
 } ChunkInfo_t;
 
 typedef struct {
@@ -149,6 +152,12 @@ typedef struct {
     uint8_t* buf;
     uint32_t cnt;
 } BatchBuf_t;
+
+typedef struct {
+    uint64_t effective_cache_delta_chunk_num;
+    uint64_t effective_global_delta_chunk_num;
+    uint64_t global_delta_fallback_chunk_num;
+} ReductionStats_t;
 
 typedef struct {
     SendChunk_t input_chunk;

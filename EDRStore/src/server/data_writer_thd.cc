@@ -24,6 +24,14 @@ string FingerprintPrefix(const uint8_t* fp) {
     return out;
 }
 
+bool IsEffectiveDelta(uint32_t delta_size, uint32_t current_size) {
+    if (delta_size == UINT32_MAX || current_size == 0) {
+        return false;
+    }
+    // Strictly less than 20%. Equality belongs to the fallback branch.
+    return static_cast<uint64_t>(delta_size) * 5 < current_size;
+}
+
 }
 
 /**
@@ -91,8 +99,6 @@ void DataWriterThd::Run(ClientVar* cur_client) {
                         &tmp_data.info);
                     switch (tmp_data.info.stat) {
                         case SIMILAR_CHUNK: {
-                            _total_similar_chunk_num++;
-                            _total_similar_data_size += tmp_data.info.size;
                             this->ProcSimilarChunk(&tmp_data, cur_client);
                             break;
                         }
@@ -148,6 +154,17 @@ void DataWriterThd::Run(ClientVar* cur_client) {
  */
 void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
+    // For Full EDR, input_chunk carries U=Enc(plain), while the request-local
+    // companion store carries C=Enc(CompressPad(plain)). Global delta is
+    // performed in the C domain so its base and target representations match.
+    string compressed_chunk;
+    bool has_compressed_fallback = cur_client->TakeFallbackChunk(
+        input_chunk->info.transient_id, compressed_chunk);
+    uint8_t* delta_target = has_compressed_fallback ?
+        (uint8_t*)compressed_chunk.data() : input_chunk->data;
+    uint32_t delta_target_size = has_compressed_fallback ?
+        static_cast<uint32_t>(compressed_chunk.size()) : input_chunk->info.size;
+
     uint8_t base_chunk[ENC_MAX_CHUNK_SIZE];
     uint32_t base_chunk_size = 0;
     uint8_t delta_chunk[ENC_MAX_CHUNK_SIZE];
@@ -180,7 +197,7 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         }
 
         if (!delta_comp_->TryDeltaEncode(base_chunk, base_chunk_size,
-            input_chunk->data, input_chunk->info.size, delta_chunk,
+            delta_target, delta_target_size, delta_chunk,
             &delta_chunk_size)) {
             candidate_delta_debug.push_back({
                 FingerprintPrefix(input_chunk->info.cdfe_candidate_base_fp[i]),
@@ -202,7 +219,7 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         }
     }
 
-    if (best_delta_chunk_size < input_chunk->info.size * 0.2) {
+    if (IsEffectiveDelta(best_delta_chunk_size, delta_target_size)) {
         found_good_delta = true;
     }
 
@@ -210,7 +227,8 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         ios_base::out);
     if (cdfe_delta_debug_log.is_open()) {
         cdfe_delta_debug_log << "[EDR CDFE delta debug]"
-            << " chunk_len=" << input_chunk->info.size
+            << " chunk_len=" << delta_target_size
+            << " full_chunk_len=" << input_chunk->info.size
             << " candidate_count=" << candidate_num
             << " best_rank=";
         if (best_rank == UINT32_MAX) {
@@ -225,7 +243,7 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
             cdfe_delta_debug_log << best_delta_chunk_size
                 << " best_delta_ratio="
                 << static_cast<double>(best_delta_chunk_size) /
-                    static_cast<double>(input_chunk->info.size);
+                    static_cast<double>(delta_target_size);
         }
         cdfe_delta_debug_log << " fallback_to_base="
             << (found_good_delta ? 0 : 1) << " | ";
@@ -244,17 +262,17 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     }
 
     if (!found_good_delta) {
-        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-            input_chunk->info.size, cur_client);
+        // A Full EDR fallback keeps U in the informed cache for later local
+        // matching, while only C is written to the main container.
+        if (has_compressed_fallback) {
+            cur_client->_inform_cache->InsertCachedChunk(input_chunk);
+        }
+        storage_core_->WriteChunk(&input_chunk->info.addr, delta_target,
+            delta_target_size, cur_client);
         input_chunk->info.addr.stat = COMP_BASE_CHUNK;
         similar_policy_->UpdateFeatureIndex(feature_2_fp_db_,
             &input_chunk->info);
-        if (_total_similar_chunk_num > 0) {
-            _total_similar_chunk_num--;
-        }
-        if (_total_similar_data_size >= input_chunk->info.size) {
-            _total_similar_data_size -= input_chunk->info.size;
-        }
+        cur_client->_reduction_stats.global_delta_fallback_chunk_num++;
         return ;
     }
 
@@ -264,13 +282,16 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
 
     // update stat
+    _total_similar_chunk_num++;
+    _total_similar_data_size += delta_target_size;
     _total_delta_size += best_delta_chunk_size;
+    cur_client->_reduction_stats.effective_global_delta_chunk_num++;
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_etime, NULL);
     _total_comp_delta_time += tool::GetTimeDiff(_comp_delta_stime,
         _comp_delta_etime);
-    _total_comp_delta_data_size += input_chunk->info.size;
+    _total_comp_delta_data_size += delta_target_size;
 #endif
 
     return ;
@@ -284,8 +305,23 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
  */
 void DataWriterThd::ProcNonSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
-    storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-        input_chunk->info.size, cur_client);
+    string compressed_chunk;
+    bool has_compressed_fallback = cur_client->TakeFallbackChunk(
+        input_chunk->info.transient_id, compressed_chunk);
+
+    if (has_compressed_fallback) {
+        // The client-local decision was not sufficient to find a usable
+        // cache/global base. Make U a new informed-cache base and store C as
+        // the normal compressed representation.
+        cur_client->_inform_cache->InsertCachedChunk(input_chunk);
+        storage_core_->WriteChunk(&input_chunk->info.addr,
+            (uint8_t*)compressed_chunk.data(),
+            static_cast<uint32_t>(compressed_chunk.size()),
+            cur_client);
+    } else {
+        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
+            input_chunk->info.size, cur_client);
+    }
     input_chunk->info.addr.stat = COMP_BASE_CHUNK;
     return ;
 }
@@ -298,6 +334,8 @@ void DataWriterThd::ProcNonSimilarChunk(WrappedChunk_t* input_chunk,
  */
 void DataWriterThd::ProcCacheDeltaChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
+    // Cache delta already won, so the compressed companion is unnecessary.
+    cur_client->DiscardFallbackChunk(input_chunk->info.transient_id);
     storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
         input_chunk->info.size, cur_client);
     input_chunk->info.addr.stat = CACHE_DELTA_CHUNK;

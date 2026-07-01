@@ -214,47 +214,40 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
 #endif
 
             if (is_similar) {
-                // is a similar chunk
-                output_chunk->send_chunk.header.type = FULL_EDR_UNCOMPRESS_CHUNK;
-                output_chunk->send_chunk.header.size = input_chunk->enc_size;
-                memcpy(output_chunk->send_chunk.data, input_chunk->enc_data,
-                    output_chunk->send_chunk.header.size);
+                // Keep both representations until the storage server has
+                // made its delta decision:
+                //   U = Enc(plain) is used for informed-cache delta;
+                //   C = Enc(CompressPad(plain)) is used for global delta or
+                //       normal base storage.
+                cache_chunk->send_chunk.header.type = FULL_EDR_CACHE_CHUNK;
+                cache_chunk->send_chunk.header.size = input_chunk->enc_size;
+                memcpy(cache_chunk->send_chunk.data, input_chunk->enc_data,
+                    cache_chunk->send_chunk.header.size);
                 
-                // copy the cipher feature without re-computing them in the server side
-                memcpy(output_chunk->send_chunk.header.cipher_features,
+                // Copy U's features without recomputing them at the server.
+                memcpy(cache_chunk->send_chunk.header.cipher_features,
                     input_chunk->feature_chunk.features,
                     sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
-                output_chunk->send_chunk.header.cdfe_feature_num =
+                cache_chunk->send_chunk.header.cdfe_feature_num =
                     input_chunk->feature_chunk.cdfe_feature_num;
-                memcpy(output_chunk->send_chunk.header.cdfe_features,
+                memcpy(cache_chunk->send_chunk.header.cdfe_features,
                     input_chunk->feature_chunk.cdfe_features,
                     sizeof(CDFEFeature_t) *
                         input_chunk->feature_chunk.cdfe_feature_num);
 
-                // perform local compression and generate compressed
-                uint8_t compressed_data[ENC_MAX_CHUNK_SIZE];
-                uint8_t enc_data[ENC_MAX_CHUNK_SIZE];
-                uint64_t compressed_size = comp_pad_->CompressWithPad(
+                // SenderThd encrypts this compressed representation before
+                // placing it on the wire.
+                output_chunk->send_chunk.header.type = COMPRESSED_NORMAL_CHUNK;
+                output_chunk->send_chunk.header.size = comp_pad_->CompressWithPad(
                     input_chunk->feature_chunk.chunk.raw_chunk.data,
                     input_chunk->feature_chunk.chunk.raw_chunk.size,
-                    compressed_data,
+                    output_chunk->send_chunk.data,
                     input_chunk->seed);
-                
-                // encrypt the chunk here
-                uint64_t enc_size = two_phase_enc_->TwoPhaseEncChunk(
-                    compressed_data,
-                    compressed_size,
-                    input_chunk->key,
-                    enc_data
-                );
-
-                crypto_util_->GenerateHash(md_ctx, enc_data, enc_size, 
-                    output_chunk->send_chunk.header.compressed_fp);
 
                 // update the key recipe
                 memcpy(output_chunk->key_recipe.key, input_chunk->key,
                     CHUNK_HASH_SIZE);
-                ret = false;
+                ret = true;
             } else {
                 // prepare the cached chunk (only for caching)
                 cache_chunk->send_chunk.header.type = FULL_EDR_CACHE_CHUNK;

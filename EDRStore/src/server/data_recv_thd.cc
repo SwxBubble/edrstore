@@ -141,7 +141,13 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
 
         switch (chunk_header_ptr->type) {
             case FULL_EDR_CACHE_CHUNK: {
-                tmp_chunk.info.size = chunk_header_ptr->size;
+                // A Full EDR logical chunk is encoded as a pair:
+                //   U = Enc(plain), followed by C = Enc(CompressPad(plain)).
+                // U travels through the reduction pipeline. C is kept in a
+                // request-local side store until DataWriter makes the global
+                // delta/fallback decision.
+                uint32_t full_size = chunk_header_ptr->size;
+                tmp_chunk.info.size = full_size;
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_cipher_fp_stime, NULL);
@@ -171,15 +177,18 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                     chunk_header_ptr->cdfe_features,
                     sizeof(CDFEFeature_t) * tmp_chunk.info.cdfe_feature_num);
 
-                // mark this chunk is for cache insertion
-                tmp_chunk.info.stat = CACHE_INSERT_CHUNK;
-
                 offset += chunk_header_ptr->size;
 
-                // -------- read the later compressed normal chunk --------
+                // -------- read the following compressed representation C --------
                 chunk_header_ptr = (SendChunkHeader_t*)(data_buf + offset);
                 offset += sizeof(SendChunkHeader_t);
                 chunk_data = data_buf + offset;
+
+                if (chunk_header_ptr->type != NORMAL_CHUNK) {
+                    tool::Logging(my_name_.c_str(),
+                        "Full EDR pair misses its compressed representation.\n");
+                    exit(EXIT_FAILURE);
+                }
 
                 uint32_t comp_size = chunk_header_ptr->size;
 
@@ -211,16 +220,9 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 _total_dual_fp_data_size += CHUNK_HASH_SIZE * 2;
 #endif
 
-                // insert the chunk for cache
-                output_MQ->Push(tmp_chunk);
-
-                // prepare for the compressed chunk
-                tmp_chunk.info.size = chunk_header_ptr->size;
-
-                // insert chunk to the next thd for dedup
-                // copy the data to the tmp chunk
-                memcpy(tmp_chunk.data, chunk_data, tmp_chunk.info.size);
-                tmp_chunk.info.stat = CHUNK_PAIR;
+                tmp_chunk.info.transient_id = cur_client->StoreFallbackChunk(
+                    chunk_data, comp_size);
+                tmp_chunk.info.stat = SINGLE_CHUNK;
                 output_MQ->Push(tmp_chunk);
 
                 this->ProcessRecipe(cur_client, tmp_chunk.info.fp);
@@ -229,7 +231,7 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
 
                 // update stat
                 _total_logical_chunk_num++;
-                _total_logical_data_size += tmp_chunk.info.size;
+                _total_logical_data_size += full_size;
 
                 break;
             }

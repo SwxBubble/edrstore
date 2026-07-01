@@ -188,6 +188,14 @@ bool CacheMeta::QueryCacheMeta(CDFEFeature_t* cdfe_features,
         4, static_cast<uint32_t>(cdfe_feature_num * 0.25));
     bool is_similar = matched_feature_num >= min_match_num;
     if (is_similar) {
+        // The server may promote this exact U representation to a new cache
+        // base when global delta is ineffective. Keep all of its features in
+        // the client-side eviction metadata so that promoted bases can later
+        // be retired correctly. Features absent from the server are harmless:
+        // eviction messages already ignore unknown entries.
+        for (uint32_t i = 0; i < cdfe_feature_num; i++) {
+            feature_2_version_idx_[cdfe_features[i].value] = cur_version_num_;
+        }
         _total_similar_chunk++;
     }
 
