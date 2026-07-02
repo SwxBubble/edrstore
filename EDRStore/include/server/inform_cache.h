@@ -15,7 +15,6 @@
 #include "../configure.h"
 #include "../data_structure.h"
 #include "../database/db_factory.h"
-#include "../chunker/finesse_util.h"
 #include "../reduction/similar_policy.h"
 #include "../reduction/delta_comp.h"
 
@@ -36,13 +35,6 @@ class InformCache {
         // CacheComp and DataWriter may both access the informed cache after
         // the global-delta fallback path is enabled.
         mutable mutex cache_lck_;
-
-        // for feature computation
-        FinesseUtil* finesse_util_;
-
-        // rabin ctx
-        RabinCtx_t rabin_ctx_;
-        RabinFPUtil* rabin_util_;
 
         // for similar detection
         SimilarPolicy* similar_policy_;

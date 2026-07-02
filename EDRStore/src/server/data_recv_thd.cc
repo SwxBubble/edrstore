@@ -24,8 +24,6 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
     dedup_util_ = new DedupDetect(fp_2_addr_db_);
     send_chunk_batch_size_ = config.GetSendChunkBatchSize();
     send_recipe_batch_size_ = config.GetSendRecipeBatchSize();
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-        FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
     cdfe_util_ = new CDFEUtil();
     crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
 }
@@ -36,7 +34,6 @@ DataRecvThd::DataRecvThd(SSLConnection* server_channel,
  */
 DataRecvThd::~DataRecvThd() {
     delete dedup_util_;
-    delete finesse_util_;
     delete cdfe_util_;
     delete crypto_util_;
 }

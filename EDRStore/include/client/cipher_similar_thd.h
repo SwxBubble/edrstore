@@ -12,22 +12,15 @@
 #ifndef CIPHER_SIMILAR_THD_H
 #define CIPHER_SIMILAR_THD_H
 
-#include "../chunker/finesse_util.h"
 #include "../chunker/cdfe_util.h"
-#include "../chunker/rabin_poly.h"
 #include "../message_queue/mq_factory.h"
 #include "../data_structure.h"
-
-extern Configure config;
 
 class CipherSimilarThd {
     private:
         string my_name_ = "CipherSimilarThd";
 
-        FinesseUtil* finesse_util_;
         CDFEUtil* cdfe_util_;
-        RabinCtx_t rabin_ctx_;
-        RabinFPUtil* rabin_util_;
     
     public:
 #ifdef EDR_BREAKDOWN

@@ -18,7 +18,6 @@
 #include "../network/ssl_conn.h"
 #include "../crypto/crypto_util.h"
 #include "../database/db_factory.h"
-#include "../reduction/similar_policy.h"
 
 extern Configure config;
 
@@ -38,7 +37,15 @@ class BasicKM {
 
         AbsDatabase* feature_2_key_index_;
 
-        SimilarPolicy* similar_policy_;
+        // Query/generate/index must be atomic across concurrent clients so a
+        // Finesse cluster receives one stable seed.
+        mutex finesse_index_lck_;
+
+        /** Select the seed with the most matching Finesse super-features. */
+        bool FindFinesseSeed(const uint64_t* features, uint8_t* seed);
+
+        /** Map all Finesse super-features of a new cluster to its seed. */
+        void IndexFinesseSeed(const uint64_t* features, const uint8_t* seed);
 
         /**
          * @brief convert the fp to value

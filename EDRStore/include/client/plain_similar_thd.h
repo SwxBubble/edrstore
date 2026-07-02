@@ -13,7 +13,6 @@
 #define PLAIN_SIMILAR_THD_H
 
 #include "../chunker/finesse_util.h"
-#include "../chunker/cdfe_util.h"
 #include "../chunker/rabin_poly.h"
 #include "../message_queue/mq_factory.h"
 #include "../data_structure.h"
@@ -26,7 +25,6 @@ class PlainSimilarThd {
         string my_name_ = "PlainSimilarThd";
 
         FinesseUtil* finesse_util_;
-        CDFEUtil* cdfe_util_;
         RabinCtx_t rabin_ctx_;  
         RabinFPUtil* rabin_util_;
 

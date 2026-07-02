@@ -88,10 +88,10 @@ typedef struct {
 } KeyGenRet_t;
 
 typedef struct {
-    // uint8_t fp[CHUNK_HASH_SIZE];
-    uint64_t features[SUPER_FEATURE_PER_CHUNK];
-    uint32_t cdfe_feature_num;
-    CDFEFeature_t cdfe_features[CDFE_MAX_FEATURE_PER_CHUNK];
+    // KeyServer clustering is intentionally isolated from ciphertext
+    // similarity detection: only plaintext Finesse super-features cross this
+    // protocol boundary.
+    uint64_t finesse_features[SUPER_FEATURE_PER_CHUNK];
 } KeyGenReq_t;
 
 typedef struct {

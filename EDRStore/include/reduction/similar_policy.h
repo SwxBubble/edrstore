@@ -52,6 +52,14 @@ class SimilarPolicy {
         ~SimilarPolicy();
 
         /**
+         * @brief find a base using only the full CDFE posting/scoring logic
+         *
+         * This deliberately does not fall back to the legacy three compact
+         * features. Storage-side local/global similarity calls this API.
+         */
+        void FindBaseChunkByCDFEOnly(ChunkInfo_t* info);
+
+        /**
          * @brief find the base chunk
          * 
          * @param feature_2_fp_db feature to base fp index

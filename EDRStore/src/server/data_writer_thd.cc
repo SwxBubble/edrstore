@@ -87,8 +87,7 @@ void DataWriterThd::Run(ClientVar* cur_client) {
                     break;
                 }
                 case UNIQUE_CHUNK: {
-                    similar_policy_->FindBaseChunk(feature_2_fp_db_,
-                        &tmp_data.info);
+                    similar_policy_->FindBaseChunkByCDFEOnly(&tmp_data.info);
                     switch (tmp_data.info.stat) {
                         case SIMILAR_CHUNK: {
                             this->ProcSimilarChunk(&tmp_data, cur_client);

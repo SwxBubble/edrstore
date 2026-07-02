@@ -49,6 +49,16 @@ SimilarPolicy::~SimilarPolicy() {
 
 }
 
+void SimilarPolicy::FindBaseChunkByCDFEOnly(ChunkInfo_t* info) {
+    info->cdfe_candidate_num = 0;
+    if (FindBaseChunkByCDFE(info)) {
+        info->stat = SIMILAR_CHUNK;
+    } else {
+        info->stat = NON_SIMILAR_CHUNK;
+    }
+    return;
+}
+
 bool SimilarPolicy::FindBaseChunkByCDFE(ChunkInfo_t* info) {
     if (info->cdfe_feature_num == 0) {
         return false;

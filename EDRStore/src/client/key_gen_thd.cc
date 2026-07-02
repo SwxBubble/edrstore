@@ -148,11 +148,9 @@ void KeyGenThd::AddChunkToBuf(EncFeatureChunk_t& input_chunk,
     //         sizeof(uint64_t), cur_key_req->features[i]);
     // }
 
-    memcpy(cur_key_req->features, input_chunk.feature_chunk.features,
+    memcpy(cur_key_req->finesse_features,
+        input_chunk.feature_chunk.features,
         sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
-    cur_key_req->cdfe_feature_num = input_chunk.feature_chunk.cdfe_feature_num;
-    memcpy(cur_key_req->cdfe_features, input_chunk.feature_chunk.cdfe_features,
-        sizeof(CDFEFeature_t) * input_chunk.feature_chunk.cdfe_feature_num);
     send_buf_.header->size += sizeof(KeyGenReq_t);
 
     if (chunk_buf_.size() % send_chunk_batch_size_ == 0) {

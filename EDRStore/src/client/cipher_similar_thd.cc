@@ -16,11 +16,7 @@
  * 
  */
 CipherSimilarThd::CipherSimilarThd() {
-    rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-        FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
     cdfe_util_ = new CDFEUtil();
-    rabin_util_->NewCtx(rabin_ctx_);
 }
 
 /**
@@ -28,9 +24,6 @@ CipherSimilarThd::CipherSimilarThd() {
  * 
  */
 CipherSimilarThd::~CipherSimilarThd() {
-    rabin_util_->FreeCtx(rabin_ctx_);
-    delete rabin_util_;
-    delete finesse_util_;
     delete cdfe_util_;
 }
 

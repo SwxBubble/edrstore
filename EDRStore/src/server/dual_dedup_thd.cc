@@ -14,14 +14,11 @@
 DualDedupThd::DualDedupThd(AbsDatabase* fp_2_addr_db) {
     fp_2_addr_db_ = fp_2_addr_db;
     dedup_util_ = new DedupDetect(fp_2_addr_db_);
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-    FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
     cdfe_util_ = new CDFEUtil();
 }
 
 DualDedupThd::~DualDedupThd() {
     delete dedup_util_;
-    delete finesse_util_;
     delete cdfe_util_;
 }
 

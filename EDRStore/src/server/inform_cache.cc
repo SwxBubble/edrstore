@@ -26,11 +26,6 @@ InformCache::InformCache(uint32_t client_id) {
     base_2_data_db_ = db_factory.CreateDatabase(ROCKSDB_DB,
         db_path);
     
-    finesse_util_ = new FinesseUtil(SUPER_FEATURE_PER_CHUNK,
-        FEATURE_PER_CHUNK, FEATURE_PER_SUPER_FEATURE);
-    rabin_util_ = new RabinFPUtil(config.GetSimilarSlidingWinSize());
-    rabin_util_->NewCtx(rabin_ctx_);
-
     similar_policy_ = new SimilarPolicy();
 
     delta_comp_ = new DeltaComp(); 
@@ -44,11 +39,8 @@ InformCache::InformCache(uint32_t client_id) {
 InformCache::~InformCache() {
     this->StoreCntIdx();
     delete base_2_data_db_;
-    delete finesse_util_;
-    rabin_util_->FreeCtx(rabin_ctx_);
     delete similar_policy_;
     delete delta_comp_;
-    delete rabin_util_;
 }
 
 /**
@@ -141,8 +133,7 @@ void InformCache::InsertCachedChunk(WrappedChunk_t* cache_chunk) {
 bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
     WrappedChunk_t* output_chunk) {
     lock_guard<mutex> lck(cache_lck_);
-    similar_policy_->FindBaseChunk(local_feature_2_fp_db_,
-        &input_chunk->info);
+    similar_policy_->FindBaseChunkByCDFEOnly(&input_chunk->info);
     bool ret = false;
 
     switch (input_chunk->info.stat) {

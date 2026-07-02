@@ -28,7 +28,6 @@ BasicKM::BasicKM(SSLConnection* km_channel,
 
     memset(global_padding_secret_, 2, CHUNK_HASH_SIZE);
 
-    similar_policy_ = new SimilarPolicy();
 }
 
 /**
@@ -37,7 +36,6 @@ BasicKM::BasicKM(SSLConnection* km_channel,
  */
 BasicKM::~BasicKM() {
     delete crypto_util_;
-    delete similar_policy_;
     fprintf(stderr, "========BasicKM Info========\n");
     fprintf(stderr, "key gen num: %lu\n", _total_key_gen_num);
     fprintf(stderr, "similar chunk num: %lu\n", _total_similar_chunk_num);
@@ -90,7 +88,6 @@ void BasicKM::Run(SSL* key_client_ssl) {
     // memcpy(tmp_padding_hash_buf, global_padding_secret_,
     //     CHUNK_HASH_SIZE);
 
-    unordered_map<string, uint32_t> feature_freq_map;
     while (true) {
         // recv data
         if (!km_channel_->ReceiveData(key_client_ssl, recv_req_buf.send_buf,
@@ -109,80 +106,27 @@ void BasicKM::Run(SSL* key_client_ssl) {
 
             // perform simple key generation
             uint32_t recv_fp_num = recv_req_buf.header->cur_item_num;
-            string base_key;
-            base_key.resize(CHUNK_HASH_SIZE, 0);
-            
             KeyGenReq_t* cur_key_gen_req = (KeyGenReq_t*) recv_req_buf.data_buf;
             KeyGenRet_t* cur_key_gen_ret = (KeyGenRet_t*) send_key_buf.data_buf;
-            ChunkInfo_t tmp_info;
             for (size_t i = 0; i < recv_fp_num; i++) {
-                memset(&tmp_info, 0, sizeof(ChunkInfo_t));
-                // memcpy(tmp_padding_hash_buf + CHUNK_HASH_SIZE, cur_key_gen_req->fp,
-                //     CHUNK_HASH_SIZE);
-                // crypto_util_->GenerateHash(md_ctx, tmp_padding_hash_buf, CHUNK_HASH_SIZE * 2,
-                //     cur_key_gen_ret->key);
-                // // DEBUG: test with similar-aware padding
-                // cur_key_gen_ret->seed = this->ConvertFp2Val(cur_key_gen_ret->key,
-                //     CHUNK_HASH_SIZE);
-
-                memcpy(tmp_info.features, cur_key_gen_req->features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
-                tmp_info.cdfe_feature_num = min(
-                    cur_key_gen_req->cdfe_feature_num,
-                    CDFE_MAX_FEATURE_PER_CHUNK);
-                memcpy(tmp_info.cdfe_features, cur_key_gen_req->cdfe_features,
-                    sizeof(CDFEFeature_t) * tmp_info.cdfe_feature_num);
-                similar_policy_->FindBaseChunk(feature_2_key_index_, &tmp_info);
-
-                switch (tmp_info.stat) {
-                    case SIMILAR_CHUNK: {
-                        // similar chunk
-                        memcpy(cur_key_gen_ret->key_seed, tmp_info.addr.base_fp,
-                            CHUNK_HASH_SIZE);
-                        _total_similar_chunk_num++;
-                        break;
-                    }
-                    case NON_SIMILAR_CHUNK: {
-                        // not a similar chunk
-                        // memcpy(tmp_hash_buf + CHUNK_HASH_SIZE, cur_key_gen_req->fp,
-                        //     CHUNK_HASH_SIZE);
-                        // crypto_util_->GenerateHash(md_ctx, tmp_hash_buf, CHUNK_HASH_SIZE * 2,
-                        //     cur_key_gen_ret->key);
-
-                        
-                        // generate new seed from the full CDFE feature set
-                        vector<uint8_t> tmp_feature_buf(
-                            CHUNK_HASH_SIZE + sizeof(uint64_t) *
-                            SUPER_FEATURE_PER_CHUNK + sizeof(uint32_t) +
-                            sizeof(CDFEFeature_t) * tmp_info.cdfe_feature_num);
-                        uint8_t* tmp_feature_ptr = tmp_feature_buf.data();
-                        memcpy(tmp_feature_ptr, global_secret_, CHUNK_HASH_SIZE);
-                        tmp_feature_ptr += CHUNK_HASH_SIZE;
-                        memcpy(tmp_feature_ptr, tmp_info.features,
-                            sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
-                        tmp_feature_ptr += sizeof(uint64_t) *
-                            SUPER_FEATURE_PER_CHUNK;
-                        memcpy(tmp_feature_ptr, &tmp_info.cdfe_feature_num,
-                            sizeof(uint32_t));
-                        tmp_feature_ptr += sizeof(uint32_t);
-                        memcpy(tmp_feature_ptr, tmp_info.cdfe_features,
-                            sizeof(CDFEFeature_t) * tmp_info.cdfe_feature_num);
-
-                        crypto_util_->GenerateHash(md_ctx,
-                            tmp_feature_buf.data(), tmp_feature_buf.size(),
-                            cur_key_gen_ret->key_seed);
-
-                        // update the index
-                        memcpy(tmp_info.fp, cur_key_gen_ret->key_seed,
-                            CHUNK_HASH_SIZE);
-                        similar_policy_->UpdateFeatureIndex(
-                            feature_2_key_index_, &tmp_info);
-                        break;
-                    }
-                    default: {
-                        tool::Logging(my_name_.c_str(), "wrong key type.\n");
-                        exit(EXIT_FAILURE);
-                    }
+                lock_guard<mutex> lck(finesse_index_lck_);
+                if (this->FindFinesseSeed(
+                    cur_key_gen_req->finesse_features,
+                    cur_key_gen_ret->key_seed)) {
+                    _total_similar_chunk_num++;
+                } else {
+                    // A new Finesse cluster gets a deterministic secret seed.
+                    uint8_t seed_input[CHUNK_HASH_SIZE + sizeof(uint64_t) *
+                        SUPER_FEATURE_PER_CHUNK];
+                    memcpy(seed_input, global_secret_, CHUNK_HASH_SIZE);
+                    memcpy(seed_input + CHUNK_HASH_SIZE,
+                        cur_key_gen_req->finesse_features,
+                        sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+                    crypto_util_->GenerateHash(md_ctx, seed_input,
+                        sizeof(seed_input), cur_key_gen_ret->key_seed);
+                    this->IndexFinesseSeed(
+                        cur_key_gen_req->finesse_features,
+                        cur_key_gen_ret->key_seed);
                 }
 
                 // DEBUG: test with similar-aware padding
@@ -219,6 +163,51 @@ void BasicKM::Run(SSL* key_client_ssl) {
         client_ip.c_str(), client_id, total_proc_time);
 
     return ;
+}
+
+bool BasicKM::FindFinesseSeed(const uint64_t* features, uint8_t* seed) {
+    vector<pair<string, uint32_t>> candidates;
+    unordered_map<string, size_t> candidate_pos;
+    string candidate_seed;
+
+    for (uint32_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
+        if (!feature_2_key_index_->QueryBuffer(
+            (const char*)&features[i], sizeof(uint64_t), candidate_seed) ||
+            candidate_seed.size() != CHUNK_HASH_SIZE) {
+            continue;
+        }
+
+        auto pos_ret = candidate_pos.find(candidate_seed);
+        if (pos_ret == candidate_pos.end()) {
+            candidate_pos[candidate_seed] = candidates.size();
+            candidates.push_back({candidate_seed, 1});
+        } else {
+            candidates[pos_ret->second].second++;
+        }
+    }
+
+    if (candidates.empty()) {
+        return false;
+    }
+
+    size_t best_pos = 0;
+    for (size_t i = 1; i < candidates.size(); i++) {
+        if (candidates[i].second > candidates[best_pos].second) {
+            best_pos = i;
+        }
+    }
+    memcpy(seed, candidates[best_pos].first.data(), CHUNK_HASH_SIZE);
+    return true;
+}
+
+void BasicKM::IndexFinesseSeed(const uint64_t* features,
+    const uint8_t* seed) {
+    for (uint32_t i = 0; i < SUPER_FEATURE_PER_CHUNK; i++) {
+        feature_2_key_index_->InsertBothBuffer(
+            (const char*)&features[i], sizeof(uint64_t),
+            (const char*)seed, CHUNK_HASH_SIZE);
+    }
+    return;
 }
 
 /**
