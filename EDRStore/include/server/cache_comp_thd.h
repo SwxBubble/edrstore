@@ -14,10 +14,12 @@
 
 #include "client_var.h"
 #include "../database/db_factory.h"
+#include "../chunker/cdfe_util.h"
 
 class CacheCompThd {
     private:
         string my_name_ = "CacheCompThd";
+        CDFEUtil* cdfe_util_;
 
     public:
         // for delta compression

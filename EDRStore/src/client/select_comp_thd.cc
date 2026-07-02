@@ -219,7 +219,10 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 //   U = Enc(plain) is used for informed-cache delta;
                 //   C = Enc(CompressPad(plain)) is used for global delta or
                 //       normal base storage.
-                cache_chunk->send_chunk.header.type = FULL_EDR_CACHE_CHUNK;
+                // Distinguish the client-predicted-similar pair from the
+                // non-similar cache-insert pair at the storage server.
+                cache_chunk->send_chunk.header.type =
+                    FULL_EDR_UNCOMPRESS_CHUNK;
                 cache_chunk->send_chunk.header.size = input_chunk->enc_size;
                 memcpy(cache_chunk->send_chunk.data, input_chunk->enc_data,
                     cache_chunk->send_chunk.header.size);

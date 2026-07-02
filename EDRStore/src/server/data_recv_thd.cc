@@ -140,12 +140,16 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
         memset(&tmp_chunk, 0, sizeof(WrappedChunk_t));
 
         switch (chunk_header_ptr->type) {
-            case FULL_EDR_CACHE_CHUNK: {
-                // A Full EDR logical chunk is encoded as a pair:
-                //   U = Enc(plain), followed by C = Enc(CompressPad(plain)).
-                // U travels through the reduction pipeline. C is kept in a
-                // request-local side store until DataWriter makes the global
-                // delta/fallback decision.
+            case FULL_EDR_CACHE_CHUNK:
+            case FULL_EDR_UNCOMPRESS_CHUNK: {
+                // Both Full EDR branches send U followed by C. The prefix
+                // type preserves the client's decision:
+                //   CACHE_CHUNK: client says non-similar; cache U and send C
+                //                directly to global processing.
+                //   UNCOMPRESS:  client says similar; try local delta on U
+                //                before deciding whether C is needed.
+                bool client_predicted_similar =
+                    chunk_header_ptr->type == FULL_EDR_UNCOMPRESS_CHUNK;
                 uint32_t full_size = chunk_header_ptr->size;
                 tmp_chunk.info.size = full_size;
 
@@ -220,10 +224,30 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 _total_dual_fp_data_size += CHUNK_HASH_SIZE * 2;
 #endif
 
-                tmp_chunk.info.transient_id = cur_client->StoreFallbackChunk(
-                    chunk_data, comp_size);
-                tmp_chunk.info.stat = SINGLE_CHUNK;
-                output_MQ->Push(tmp_chunk);
+                if (client_predicted_similar) {
+                    // U is deduplicated and then checked against the local
+                    // informed cache. C stays request-local until that check
+                    // succeeds or fails.
+                    tmp_chunk.info.transient_id =
+                        cur_client->StoreFallbackChunk(chunk_data, comp_size);
+                    tmp_chunk.info.stat = SINGLE_CHUNK;
+                    output_MQ->Push(tmp_chunk);
+                } else {
+                    // Preserve the original non-similar path: U becomes a
+                    // cache base and never enters global storage processing.
+                    tmp_chunk.info.stat = CACHE_INSERT_CHUNK;
+                    output_MQ->Push(tmp_chunk);
+
+                    // C owns the dual fingerprint. It is deduplicated, has
+                    // features extracted at the server, and bypasses local
+                    // cache matching before global processing.
+                    tmp_chunk.info.size = comp_size;
+                    tmp_chunk.info.cdfe_feature_num = 0;
+                    tmp_chunk.info.transient_id = 0;
+                    memcpy(tmp_chunk.data, chunk_data, comp_size);
+                    tmp_chunk.info.stat = CHUNK_PAIR;
+                    output_MQ->Push(tmp_chunk);
+                }
 
                 this->ProcessRecipe(cur_client, tmp_chunk.info.fp);
 
@@ -232,63 +256,6 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                 // update stat
                 _total_logical_chunk_num++;
                 _total_logical_data_size += full_size;
-
-                break;
-            }
-            case FULL_EDR_UNCOMPRESS_CHUNK: {
-                // it is a normal chunk
-                tmp_chunk.info.size = chunk_header_ptr->size;
-                memcpy(dual_fp_buf + CHUNK_HASH_SIZE, chunk_header_ptr->compressed_fp,
-                    CHUNK_HASH_SIZE);
-
-#ifdef EDR_BREAKDOWN
-                gettimeofday(&_cipher_fp_stime, NULL);
-#endif
-                crypto_util_->GenerateHash(md_ctx, chunk_data,
-                    tmp_chunk.info.size, dual_fp_buf);
-#ifdef EDR_BREAKDOWN
-                gettimeofday(&_cipher_fp_etime, NULL);
-                _total_cipher_fp_time += tool::GetTimeDiff(_cipher_fp_stime,
-                    _cipher_fp_etime);
-                _total_cipher_fp_data_size += tmp_chunk.info.size;
-#endif
-
-#ifdef EDR_BREAKDOWN
-                gettimeofday(&_dual_fp_stime, NULL);
-#endif
-                // generate the dual-finerprint
-                crypto_util_->GenerateHash(md_ctx, dual_fp_buf, 
-                    CHUNK_HASH_SIZE * 2, tmp_chunk.info.fp);
-#ifdef EDR_BREAKDOWN
-                gettimeofday(&_dual_fp_etime, NULL);
-                _total_dual_fp_time += tool::GetTimeDiff(_dual_fp_stime,
-                    _dual_fp_etime);
-                _total_dual_fp_data_size += CHUNK_HASH_SIZE * 2;
-#endif
-
-
-                // insert into the next thd for dedup
-                tmp_chunk.info.stat = SINGLE_CHUNK;
-                memcpy(tmp_chunk.data, chunk_data, tmp_chunk.info.size);
-                // copy the cipher feature from the client
-                memcpy(tmp_chunk.info.features, chunk_header_ptr->cipher_features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
-                tmp_chunk.info.cdfe_feature_num = min(
-                    chunk_header_ptr->cdfe_feature_num,
-                    CDFE_MAX_FEATURE_PER_CHUNK);
-                memcpy(tmp_chunk.info.cdfe_features,
-                    chunk_header_ptr->cdfe_features,
-                    sizeof(CDFEFeature_t) * tmp_chunk.info.cdfe_feature_num);
-                output_MQ->Push(tmp_chunk);
-
-                this->ProcessRecipe(cur_client, tmp_chunk.info.fp);
-
-                offset += chunk_header_ptr->size;
-
-                // update stat
-                _total_logical_chunk_num++;
-                _total_logical_data_size += tmp_chunk.info.size;
-
                 break;
             }
             case NORMAL_CHUNK: {

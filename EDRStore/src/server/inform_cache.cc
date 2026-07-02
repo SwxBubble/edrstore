@@ -160,10 +160,10 @@ bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
                     break;
                 }
 
-                // A delta is effective only when it is strictly below 20%.
+                // A delta is effective only when it is strictly below 30%.
                 // Integer arithmetic keeps the equality boundary exact.
-                if (static_cast<uint64_t>(output_chunk->info.size) * 5 >=
-                    input_chunk->info.size) {
+                if (static_cast<uint64_t>(output_chunk->info.size) * 10 >=
+                    static_cast<uint64_t>(input_chunk->info.size) * 3) {
                     ret = false;
                     break;
                 }

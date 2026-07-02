@@ -24,14 +24,6 @@ string FingerprintPrefix(const uint8_t* fp) {
     return out;
 }
 
-bool IsEffectiveDelta(uint32_t delta_size, uint32_t current_size) {
-    if (delta_size == UINT32_MAX || current_size == 0) {
-        return false;
-    }
-    // Strictly less than 20%. Equality belongs to the fallback branch.
-    return static_cast<uint64_t>(delta_size) * 5 < current_size;
-}
-
 }
 
 /**
@@ -154,16 +146,10 @@ void DataWriterThd::Run(ClientVar* cur_client) {
  */
 void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
-    // For Full EDR, input_chunk carries U=Enc(plain), while the request-local
-    // companion store carries C=Enc(CompressPad(plain)). Global delta is
-    // performed in the C domain so its base and target representations match.
-    string compressed_chunk;
-    bool has_compressed_fallback = cur_client->TakeFallbackChunk(
-        input_chunk->info.transient_id, compressed_chunk);
-    uint8_t* delta_target = has_compressed_fallback ?
-        (uint8_t*)compressed_chunk.data() : input_chunk->data;
-    uint32_t delta_target_size = has_compressed_fallback ?
-        static_cast<uint32_t>(compressed_chunk.size()) : input_chunk->info.size;
+    // The global path always receives C=Enc(CompressPad(plain)) with features
+    // extracted from C at the storage server.
+    uint8_t* delta_target = input_chunk->data;
+    uint32_t delta_target_size = input_chunk->info.size;
 
     uint8_t base_chunk[ENC_MAX_CHUNK_SIZE];
     uint32_t base_chunk_size = 0;
@@ -219,7 +205,10 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
         }
     }
 
-    if (IsEffectiveDelta(best_delta_chunk_size, delta_target_size)) {
+    // Global acceptance is controlled by CDFE candidate selection. Once a
+    // candidate exists and xdelta encoding succeeds, keep the best delta
+    // without applying the local-cache 30% size threshold.
+    if (best_delta_chunk_size != UINT32_MAX) {
         found_good_delta = true;
     }
 
@@ -262,11 +251,6 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     }
 
     if (!found_good_delta) {
-        // A Full EDR fallback keeps U in the informed cache for later local
-        // matching, while only C is written to the main container.
-        if (has_compressed_fallback) {
-            cur_client->_inform_cache->InsertCachedChunk(input_chunk);
-        }
         storage_core_->WriteChunk(&input_chunk->info.addr, delta_target,
             delta_target_size, cur_client);
         input_chunk->info.addr.stat = COMP_BASE_CHUNK;
@@ -305,23 +289,8 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
  */
 void DataWriterThd::ProcNonSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
-    string compressed_chunk;
-    bool has_compressed_fallback = cur_client->TakeFallbackChunk(
-        input_chunk->info.transient_id, compressed_chunk);
-
-    if (has_compressed_fallback) {
-        // The client-local decision was not sufficient to find a usable
-        // cache/global base. Make U a new informed-cache base and store C as
-        // the normal compressed representation.
-        cur_client->_inform_cache->InsertCachedChunk(input_chunk);
-        storage_core_->WriteChunk(&input_chunk->info.addr,
-            (uint8_t*)compressed_chunk.data(),
-            static_cast<uint32_t>(compressed_chunk.size()),
-            cur_client);
-    } else {
-        storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-            input_chunk->info.size, cur_client);
-    }
+    storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
+        input_chunk->info.size, cur_client);
     input_chunk->info.addr.stat = COMP_BASE_CHUNK;
     return ;
 }

@@ -16,7 +16,7 @@
  * 
  */
 CacheCompThd::CacheCompThd() {
-
+    cdfe_util_ = new CDFEUtil();
 }
 
 /**
@@ -24,7 +24,7 @@ CacheCompThd::CacheCompThd() {
  * 
  */
 CacheCompThd::~CacheCompThd() {
-
+    delete cdfe_util_;
 }
 
 /**
@@ -93,10 +93,38 @@ void CacheCompThd::Run(ClientVar* cur_client) {
                         cur_client->_reduction_stats.
                             effective_cache_delta_chunk_num++;
                     } else {
-                        // Non-similar in the local cache is still a valid
-                        // unique chunk for the global storage path.
-                        input_data.info.stat = UNIQUE_CHUNK;
-                        output_MQ->Push(input_data);
+                        // The client predicted this U as cache-similar, but
+                        // local delta was ineffective. Promote U to a cache
+                        // base, then switch the global path to its paired C.
+                        string compressed_chunk;
+                        if (!cur_client->TakeFallbackChunk(
+                            input_data.info.transient_id,
+                            compressed_chunk)) {
+                            tool::Logging(my_name_.c_str(),
+                                "missing compressed companion after local "
+                                "delta fallback.\n");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        inform_cache->InsertCachedChunk(&input_data);
+
+                        memset(&output_data, 0, sizeof(WrappedChunk_t));
+                        memcpy(output_data.info.fp, input_data.info.fp,
+                            CHUNK_HASH_SIZE);
+                        output_data.info.size = static_cast<uint32_t>(
+                            compressed_chunk.size());
+                        memcpy(output_data.data, compressed_chunk.data(),
+                            output_data.info.size);
+
+                        // Global similarity is defined on C, so the storage
+                        // server extracts fresh features from C itself.
+                        cdfe_util_->ExtractFeature(output_data.data,
+                            output_data.info.size,
+                            output_data.info.features,
+                            &output_data.info.cdfe_feature_num,
+                            output_data.info.cdfe_features);
+                        output_data.info.stat = UNIQUE_CHUNK;
+                        output_MQ->Push(output_data);
                     }
 
 // #ifdef EDR_BREAKDOWN

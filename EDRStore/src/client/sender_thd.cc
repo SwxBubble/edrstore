@@ -175,7 +175,9 @@ void SenderThd::Run(AbsMQ<SelectComp2Sender_t>* input_MQ) {
                     break;
                 }
                 case FULL_EDR_UNCOMPRESS_CHUNK: {
-                    // this is a normal chunk (uncompressed chunk -> similar chunk):
+                    // Prefix U of a client-predicted-similar U+C pair. The
+                    // following compressed chunk owns the logical item count
+                    // and key recipe, keeping the pair in the same batch.
                     memcpy(send_chunk_buf_.data_buf + send_chunk_buf_.header->size,
                         &tmp_data.send_chunk.header, sizeof(SendChunkHeader_t));
                     send_chunk_buf_.header->size += sizeof(SendChunkHeader_t);
@@ -183,18 +185,10 @@ void SenderThd::Run(AbsMQ<SelectComp2Sender_t>* input_MQ) {
                         tmp_data.send_chunk.data, tmp_data.send_chunk.header.size);
                     send_chunk_buf_.header->size += tmp_data.send_chunk.header.size;
 
-                    send_chunk_buf_.header->cur_item_num++;
-                    
-                    if(send_chunk_buf_.header->cur_item_num %
-                        send_chunk_batch_size_ == 0){
-                        this->SendChunks();
-                    }
-
                     // update the send size
                     _total_send_data_size += tmp_data.send_chunk.header.size;
 
-                    // store the key recipe
-                    this->StoreKeyRecipe(&tmp_data.key_recipe);
+                    // The following C stores the key recipe.
                     break;
                 }
                 case RECIPE_CHUNK: {
