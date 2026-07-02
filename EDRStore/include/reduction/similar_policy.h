@@ -31,7 +31,7 @@ class SimilarPolicy {
         uint32_t cdfe_hot_posting_limit_ = 64;
         uint32_t cdfe_min_matched_subblocks_ = 0;
         uint32_t cdfe_min_aligned_subblocks_ = 0;
-        float cdfe_min_jaccard_proxy_ = 0.25;
+        float cdfe_min_jaccard_proxy_ = 0.15;
         float cdfe_pos_tolerance_ = 0.15;
 
         bool FindBaseChunkByCDFE(ChunkInfo_t* info);

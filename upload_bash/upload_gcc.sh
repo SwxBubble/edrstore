@@ -36,7 +36,7 @@ for FILE in "${FILES[@]}"; do
         # 先 cd 到工具目录，这样 ClientMain 就能在同级目录下找到 config.json 了
         (
             cd "$BIN_DIR" || exit 1
-            ./ClientMain -t u -i "$FULL_PATH" -m 0
+            ./ClientMain -t u -i "$FULL_PATH" -m 2
         )
         
     else
