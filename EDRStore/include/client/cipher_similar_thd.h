@@ -16,6 +16,7 @@
 #include "../chunker/rabin_poly.h"
 #include "../message_queue/mq_factory.h"
 #include "../data_structure.h"
+#include "two_phase_enc.h"
 
 extern Configure config;
 

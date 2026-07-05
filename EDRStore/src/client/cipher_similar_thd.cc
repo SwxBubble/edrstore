@@ -63,9 +63,20 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
 
             switch (tmp_data.feature_chunk.chunk.type) {
                 case NORMAL_CHUNK: {
+                    // Recipe bytes are an opaque envelope prefix. Excluding
+                    // them keeps resemblance features focused on the aligned
+                    // region ciphertext that is useful to delta compression.
+                    uint32_t payload_offset = 0;
+                    uint32_t payload_size = 0;
+                    if (!TwoPhaseEnc::GetPayloadRange(tmp_data.enc_data,
+                        tmp_data.enc_size, payload_offset, payload_size)) {
+                        tool::Logging(my_name_.c_str(), "invalid AATE envelope.\n");
+                        exit(EXIT_FAILURE);
+                    }
                     // re-use the plaintext feature buffer to store features of ciphertext chunk
-                    finesse_util_->ExtractFeature(rabin_ctx_, tmp_data.enc_data,
-                        tmp_data.enc_size, tmp_data.feature_chunk.features);
+                    finesse_util_->ExtractFeature(rabin_ctx_,
+                        tmp_data.enc_data + payload_offset, payload_size,
+                        tmp_data.feature_chunk.features);
                     break;    
                 }
                 case RECIPE_CHUNK: {

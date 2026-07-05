@@ -239,6 +239,10 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                     input_chunk->key,
                     enc_data
                 );
+                if (enc_size == 0) {
+                    tool::Logging(my_name_.c_str(), "AATE compressed chunk encryption failed.\n");
+                    exit(EXIT_FAILURE);
+                }
 
                 crypto_util_->GenerateHash(md_ctx, enc_data, enc_size, 
                     output_chunk->send_chunk.header.compressed_fp);

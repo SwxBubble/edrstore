@@ -440,6 +440,10 @@ void DataRetrieverThd::ProcCompChunk(uint8_t* input_chunk, uint32_t size,
     uint32_t w_padding_size;
     w_padding_size = two_phase_enc_->TwoPhaseDecChunk(input_chunk,
         size, key_recipe->key, tmp_dec_buf);
+    if (w_padding_size == 0) {
+        tool::Logging(my_name_.c_str(), "AATE compressed chunk authentication failed.\n");
+        exit(EXIT_FAILURE);
+    }
     
     // decompression with real size
     output_chunk->header.size = comp_pad_->DecompressWithPad(
@@ -461,6 +465,10 @@ void DataRetrieverThd::ProcUncompChunk(uint8_t* input_chunk, uint32_t size,
     // directly decrypt
     output_chunk->header.size = two_phase_enc_->TwoPhaseDecChunk(input_chunk,
         size, key_recipe->key, output_chunk->data);
+    if (output_chunk->header.size == 0) {
+        tool::Logging(my_name_.c_str(), "AATE chunk authentication failed.\n");
+        exit(EXIT_FAILURE);
+    }
 
     return ;
 }
@@ -483,6 +491,10 @@ void DataRetrieverThd::ProcRestoreBaseChunk(uint8_t* input_chunk,
     // decrypt the encrypted compressed base chunk
     w_padding_size = two_phase_enc_->TwoPhaseDecChunk(input_chunk,
         size, key_recipe->key, un_enc_comp_base);
+    if (w_padding_size == 0) {
+        tool::Logging(my_name_.c_str(), "AATE base authentication failed.\n");
+        exit(EXIT_FAILURE);
+    }
     
     // decompress the compressed base chunk
     wo_padding_size = comp_pad_->DecompressWithPad(un_enc_comp_base,
@@ -491,6 +503,10 @@ void DataRetrieverThd::ProcRestoreBaseChunk(uint8_t* input_chunk,
     // re-encrypt the base chunk
     restore_chunk->header.size = two_phase_enc_->TwoPhaseEncChunk(
         base_chunk, wo_padding_size, key_recipe->key, restore_chunk->data);
+    if (restore_chunk->header.size == 0) {
+        tool::Logging(my_name_.c_str(), "AATE base re-encryption failed.\n");
+        exit(EXIT_FAILURE);
+    }
 
     return ;
 }

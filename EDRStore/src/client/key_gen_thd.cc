@@ -45,8 +45,6 @@ KeyGenThd::KeyGenThd(SSLConnection* km_channel,
     km_conn_record_ = km_conn_record;
     km_ssl_ = km_conn_record.second;
 
-    crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
-    md_ctx = EVP_MD_CTX_new();
 }
 
 /**
@@ -54,8 +52,6 @@ KeyGenThd::KeyGenThd(SSLConnection* km_channel,
  * 
  */
 KeyGenThd::~KeyGenThd() {
-    delete crypto_util_;
-    EVP_MD_CTX_free(md_ctx);
     delete two_phase_enc_;
     free(send_buf_.send_buf);
     free(recv_buf_.send_buf);
@@ -214,11 +210,10 @@ void KeyGenThd::ProcessBatch(AbsMQ<EncFeatureChunk_t>* output_MQ) {
     gettimeofday(&_key_gen_stime, NULL);
 #endif
 
-        // final key = H (sampled plaintext content || key seed)
-        uint8_t tmp_generating_key_buf[CHUNK_HASH_SIZE * 2];
-        memcpy(tmp_generating_key_buf, chunk_buf_[i].feature_chunk.chunk.raw_chunk.data, CHUNK_HASH_SIZE);
-        memcpy(tmp_generating_key_buf + CHUNK_HASH_SIZE, cur_key_ret->key_seed, CHUNK_HASH_SIZE);
-        crypto_util_->GenerateHash(md_ctx, tmp_generating_key_buf, CHUNK_HASH_SIZE * 2, chunk_buf_[i].key);
+        // AATE requires a group-stable input key. Similar chunks receive the
+        // same key-server seed; mixing the first plaintext bytes here would
+        // break synchronization after a prefix insertion/deletion.
+        memcpy(chunk_buf_[i].key, cur_key_ret->key_seed, CHUNK_HASH_SIZE);
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_key_gen_etime, NULL);
@@ -237,6 +232,10 @@ void KeyGenThd::ProcessBatch(AbsMQ<EncFeatureChunk_t>* output_MQ) {
             chunk_buf_[i].key,
             chunk_buf_[i].enc_data
         );
+        if (chunk_buf_[i].enc_size == 0) {
+            tool::Logging(my_name_.c_str(), "AATE chunk encryption failed.\n");
+            exit(EXIT_FAILURE);
+        }
 
 #ifdef EDR_BREAKDOWN
         gettimeofday(&_two_enc_etime, NULL);

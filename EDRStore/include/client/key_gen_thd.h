@@ -41,10 +41,6 @@ class KeyGenThd {
         // two-phase encryption 
         TwoPhaseEnc* two_phase_enc_;
 
-        // for crypto
-        CryptoUtil* crypto_util_;
-        EVP_MD_CTX* md_ctx;
-
         /**
          * @brief add the chunk to the batch plaintext chunk buffer
          * 

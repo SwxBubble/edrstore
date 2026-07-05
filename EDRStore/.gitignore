@@ -4,6 +4,10 @@ dependent-package/
 bin/
 lib/
 test*
+!tests/
+!tests/CMakeLists.txt
+!tests/aate_test.cc
+build-*/
 ThirdPartyLib/
 report
 *log*

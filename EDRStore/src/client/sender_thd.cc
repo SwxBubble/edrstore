@@ -112,6 +112,10 @@ void SenderThd::Run(AbsMQ<SelectComp2Sender_t>* input_MQ) {
                         tmp_data.send_chunk.header.size,
                         tmp_data.key_recipe.key,
                         tmp_enc_buf);
+                    if (tmp_data.send_chunk.header.size == 0) {
+                        tool::Logging(my_name_.c_str(), "AATE compressed chunk encryption failed.\n");
+                        exit(EXIT_FAILURE);
+                    }
                     tmp_data.send_chunk.header.type = NORMAL_CHUNK;
                     
                     memcpy(send_chunk_buf_.data_buf + send_chunk_buf_.header->size,

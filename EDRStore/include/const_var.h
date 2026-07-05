@@ -88,7 +88,14 @@ enum CLIENT_ENC_TYPE_SET {PLAIN = 0, SERVER_AIDED_MLE, ENC_COMP_MLE};
 
 enum EDR_DESIGN_SET {ONLY_SIMILAR_ENC = 0, SIMILAR_ENC_COMP, FULL_EDR};
 
-static const size_t ENC_MAX_CHUNK_SIZE = MAX_CHUNK_SIZE + CRYPTO_BLOCK_SIZE +
-    sizeof(uint32_t);
+// CompressionWithPad may append its 4-byte original compressed length before
+// encryption, so an AATE plaintext can be slightly larger than a raw chunk.
+static const size_t AATE_MAX_PLAIN_SIZE = MAX_CHUNK_SIZE + sizeof(uint32_t);
+// AATE payload is length-preserving. Its authenticated boundary recipe uses
+// at most one bit per plaintext byte, plus a small fixed envelope header.
+static const size_t AATE_MAX_RECIPE_SIZE = 1 + (AATE_MAX_PLAIN_SIZE + 7) / 8;
+static const size_t AATE_ENVELOPE_HEADER_SIZE = 41;
+static const size_t ENC_MAX_CHUNK_SIZE = AATE_MAX_PLAIN_SIZE + AATE_MAX_RECIPE_SIZE +
+    AATE_ENVELOPE_HEADER_SIZE;
 
 #endif
