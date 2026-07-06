@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/dual_dedup_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 DualDedupThd::DualDedupThd(AbsDatabase* fp_2_addr_db) {
     fp_2_addr_db_ = fp_2_addr_db;
@@ -71,15 +72,27 @@ void DualDedupThd::Run(ClientVar* cur_client) {
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_stime, NULL);
 #endif
-                        // compute the feature here
+                        // Compute features from the AATE payload only. The
+                        // encrypted recipe prefix is object metadata and must
+                        // not influence resemblance detection.
+                        AATEObjectView object_view;
+                        if (!ParseAATEObject(input_data.data,
+                            input_data.info.size, object_view)) {
+                            tool::Logging(my_name_.c_str(),
+                                "invalid AATE object in dual dedup.\n");
+                            exit(EXIT_FAILURE);
+                        }
                         finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
-                            input_data.data, input_data.info.size,
+                            const_cast<uint8_t*>(object_view.payload),
+                            object_view.payload_size,
                             input_data.info.features);
+                        AATEDomainSeparateFeatures(object_view,
+                            input_data.info.features, SUPER_FEATURE_PER_CHUNK);
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);
                     _total_cipher_feature_time += tool::GetTimeDiff(
                         _cipher_feature_stime, _cipher_feature_etime);
-                    _total_cipher_feature_data_size += input_data.info.size;
+                    _total_cipher_feature_data_size += object_view.payload_size;
 #endif
                         output_MQ->Push(input_data);
 

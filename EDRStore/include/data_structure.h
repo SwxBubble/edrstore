@@ -37,8 +37,15 @@ typedef struct {
 typedef Chunk_t Chunker2KeyGen_t;
 
 typedef struct {
+    uint64_t hashes[AATE_POSITION_SKETCH_SIZE];
+    uint32_t offsets[AATE_POSITION_SKETCH_SIZE];
+    uint32_t valid_count;
+} PositionSketch_t;
+
+typedef struct {
     Chunk_t chunk;
-    uint64_t features[SUPER_FEATURE_PER_CHUNK];    
+    uint64_t features[SUPER_FEATURE_PER_CHUNK];
+    PositionSketch_t position_sketch;
 } FeatureChunk_t;
 
 typedef struct {
@@ -46,6 +53,7 @@ typedef struct {
     uint8_t enc_data[ENC_MAX_CHUNK_SIZE];
     uint32_t enc_size;
     uint8_t key[CHUNK_HASH_SIZE];
+    uint8_t enc_mode;
     uint64_t seed;
 } EncFeatureChunk_t;
 
@@ -60,11 +68,12 @@ typedef struct {
 
 typedef struct {
     SendChunkHeader_t header;
-    uint8_t data[ENC_MAX_CHUNK_SIZE];
+    uint8_t data[STORAGE_MAX_CHUNK_SIZE];
 } SendChunk_t;
 
 typedef struct {
     uint8_t key[CHUNK_HASH_SIZE];
+    uint8_t enc_mode;
 } KeyRecipe_t;
 
 typedef struct {
@@ -74,13 +83,18 @@ typedef struct {
 
 typedef struct {
     uint8_t key_seed[CHUNK_HASH_SIZE];
-    // uint64_t seed;
+    uint8_t enc_mode;
 } KeyGenRet_t;
 
 typedef struct {
-    // uint8_t fp[CHUNK_HASH_SIZE];
     uint64_t features[SUPER_FEATURE_PER_CHUNK];
+    PositionSketch_t position_sketch;
 } KeyGenReq_t;
+
+typedef struct {
+    uint8_t key_seed[CHUNK_HASH_SIZE];
+    PositionSketch_t reference_sketch;
+} KeyGroupIndexValue_t;
 
 typedef struct {
     uint8_t hash[CHUNK_HASH_SIZE];
@@ -126,7 +140,7 @@ typedef struct {
 
 typedef struct {
     ChunkInfo_t info;
-    uint8_t data[ENC_MAX_CHUNK_SIZE];
+    uint8_t data[STORAGE_MAX_CHUNK_SIZE];
 } WrappedChunk_t;
 
 typedef struct {

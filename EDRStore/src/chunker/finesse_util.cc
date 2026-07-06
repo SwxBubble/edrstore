@@ -134,3 +134,50 @@ void FinesseUtil::ExtractFeature(RabinCtx_t& ctx, uint8_t* data, uint32_t size,
 
     return ;
 }
+
+void FinesseUtil::ExtractPositionSketch(RabinCtx_t& ctx, uint8_t* data,
+    uint32_t size, PositionSketch_t& sketch) {
+    memset(&sketch, 0, sizeof(sketch));
+    rabin_util_->ResetCtx(ctx);
+    const uint32_t window_size = config.GetSimilarSlidingWinSize();
+    vector<pair<uint64_t, uint32_t>> landmarks;
+    landmarks.reserve(AATE_POSITION_SKETCH_SIZE);
+
+    for (uint32_t i = 0; i < size; ++i) {
+        const uint64_t fp = rabin_util_->SlideOneByte(ctx, data[i]);
+        if (i + 1 < window_size) {
+            continue;
+        }
+        bool duplicate = false;
+        for (const auto& landmark : landmarks) {
+            if (landmark.first == fp) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+        if (landmarks.size() < AATE_POSITION_SKETCH_SIZE) {
+            landmarks.emplace_back(fp, i + 1);
+        } else {
+            auto smallest = min_element(landmarks.begin(), landmarks.end(),
+                [](const auto& left, const auto& right) {
+                    return left.first < right.first;
+                });
+            if (fp > smallest->first) {
+                *smallest = {fp, i + 1};
+            }
+        }
+    }
+    rabin_util_->ResetCtx(ctx);
+    sort(landmarks.begin(), landmarks.end(),
+        [](const auto& left, const auto& right) {
+            return left.first > right.first;
+        });
+    sketch.valid_count = landmarks.size();
+    for (uint32_t i = 0; i < sketch.valid_count; ++i) {
+        sketch.hashes[i] = landmarks[i].first;
+        sketch.offsets[i] = landmarks[i].second;
+    }
+}

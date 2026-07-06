@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/inform_cache.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new InformCache object
@@ -98,10 +99,29 @@ bool InformCache::ProcessNormalChunk(WrappedChunk_t* input_chunk,
             if (base_2_data_db_->QueryBuffer(
                 (char*)input_chunk->info.addr.base_fp,
                 CHUNK_HASH_SIZE, cache_base_chunk_str_)) {
-                output_chunk->info.size = delta_comp_->DeltaEncode(
-                    (uint8_t*)&cache_base_chunk_str_[0],
-                    cache_base_chunk_str_.size(), input_chunk->data, 
-                    input_chunk->info.size, output_chunk->data);
+                AATEObjectView base_view;
+                AATEObjectView target_view;
+                if (!ParseAATEObject(
+                        reinterpret_cast<const uint8_t*>(cache_base_chunk_str_.data()),
+                        cache_base_chunk_str_.size(), base_view) ||
+                    !ParseAATEObject(input_chunk->data, input_chunk->info.size,
+                        target_view)) {
+                    tool::Logging(my_name_.c_str(),
+                        "cannot parse AATE cache objects.\n");
+                    exit(EXIT_FAILURE);
+                }
+                uint8_t payload_delta[ENC_MAX_CHUNK_SIZE];
+                const uint32_t payload_delta_size = delta_comp_->DeltaEncode(
+                    const_cast<uint8_t*>(base_view.payload), base_view.payload_size,
+                    const_cast<uint8_t*>(target_view.payload), target_view.payload_size,
+                    payload_delta);
+                if (!BuildAATEDelta(target_view, payload_delta,
+                    payload_delta_size, output_chunk->data,
+                    STORAGE_MAX_CHUNK_SIZE, output_chunk->info.size)) {
+                    tool::Logging(my_name_.c_str(),
+                        "cannot build AATE cache delta record.\n");
+                    exit(EXIT_FAILURE);
+                }
 
                 // copy the metadata to the input chunk 
                 memcpy(output_chunk->info.addr.base_fp,

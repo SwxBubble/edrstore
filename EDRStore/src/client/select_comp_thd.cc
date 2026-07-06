@@ -127,6 +127,7 @@ void SelectCompThd::OnlyEncMode(EncFeatureChunk_t* input_chunk,
             // update the key recipe
             memcpy(output_chunk->key_recipe.key, input_chunk->key,
                 CHUNK_HASH_SIZE);
+            output_chunk->key_recipe.enc_mode = input_chunk->enc_mode;
             break;
         }
         case RECIPE_CHUNK: {
@@ -163,6 +164,7 @@ void SelectCompThd::EncCompMode(EncFeatureChunk_t* input_chunk,
             // update the key recipe
             memcpy(output_chunk->key_recipe.key, input_chunk->key,
                 CHUNK_HASH_SIZE);
+            output_chunk->key_recipe.enc_mode = input_chunk->enc_mode;
             break;
         }
         case RECIPE_CHUNK: {
@@ -250,6 +252,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 // update the key recipe
                 memcpy(output_chunk->key_recipe.key, input_chunk->key,
                     CHUNK_HASH_SIZE);
+                output_chunk->key_recipe.enc_mode = input_chunk->enc_mode;
                 ret = false;
             } else {
                 // prepare the cached chunk (only for caching)
@@ -285,6 +288,7 @@ bool SelectCompThd::FullEDR(EncFeatureChunk_t* input_chunk,
                 // update the key recipe
                 memcpy(output_chunk->key_recipe.key, input_chunk->key,
                     CHUNK_HASH_SIZE);
+                output_chunk->key_recipe.enc_mode = input_chunk->enc_mode;
 
 #ifdef EDR_BREAKDOWN
                 gettimeofday(&_cache_manage_stime, NULL);

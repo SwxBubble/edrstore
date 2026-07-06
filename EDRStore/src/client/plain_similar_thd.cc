@@ -66,6 +66,10 @@ void PlainSimilarThd::Run(AbsMQ<Chunk_t>* input_MQ,
                 case NORMAL_CHUNK: {
                     finesse_util_->ExtractFeature(rabin_ctx_, tmp_data.chunk.raw_chunk.data,
                         tmp_data.chunk.raw_chunk.size, tmp_data.features);
+                    finesse_util_->ExtractPositionSketch(rabin_ctx_,
+                        tmp_data.chunk.raw_chunk.data,
+                        tmp_data.chunk.raw_chunk.size,
+                        tmp_data.position_sketch);
                     break;
                 }
                 case RECIPE_CHUNK: {

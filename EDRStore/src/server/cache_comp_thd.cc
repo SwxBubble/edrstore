@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/cache_comp_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new CacheCompThd object
@@ -85,8 +86,20 @@ void CacheCompThd::Run(ClientVar* cur_client) {
                         // similar chunk
                         output_MQ->Push(output_data);
                         _total_similar_chunk_num++;
-                        _total_similar_data_size += input_data.info.size;
-                        _total_delta_size += output_data.info.size;
+                        AATEObjectView input_view;
+                        AATEDeltaView delta_view;
+                        if (!ParseAATEObject(input_data.data, input_data.info.size,
+                                input_view) ||
+                            !ParseAATEDelta(output_data.data, output_data.info.size,
+                                delta_view)) {
+                            tool::Logging(my_name_.c_str(),
+                                "invalid AATE cache delta statistics.\n");
+                            exit(EXIT_FAILURE);
+                        }
+                        _total_similar_data_size += input_view.payload_size;
+                        _total_delta_size += delta_view.delta_size;
+                        _total_delta_record_overhead_size +=
+                            output_data.info.size - delta_view.delta_size;
                     } else {
                         // non-similar chunk, back to original stat
                         if (inform_cache->GetCacheSize() == 0) {

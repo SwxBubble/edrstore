@@ -18,6 +18,7 @@
 #include "../configure.h"
 #include "../client/two_phase_enc.h"
 #include "../database/db_factory.h"
+#include "../crypto/crypto_util.h"
 
 extern Configure config;
 
@@ -40,6 +41,11 @@ class KeyGenThd {
 
         // two-phase encryption 
         TwoPhaseEnc* two_phase_enc_;
+
+        // GLOBAL mode deliberately keeps the original EDRStore key grouping:
+        // H(first 32 plaintext bytes || key-manager group seed).
+        CryptoUtil* crypto_util_;
+        EVP_MD_CTX* md_ctx_;
 
         /**
          * @brief add the chunk to the batch plaintext chunk buffer
@@ -92,6 +98,10 @@ class KeyGenThd {
             AbsMQ<EncFeatureChunk_t>* output_MQ);
         
         uint64_t ConvertFp2Val(uint8_t* fp, uint32_t size);
+
+        const AATEStats& GetAATEStats() const {
+            return two_phase_enc_->GetStats();
+        }
 };
 
 #endif

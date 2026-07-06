@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/data_decoder_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new DataDecoderThd object
@@ -111,11 +112,28 @@ void DataDecoderThd::DecodeChunk(Reader2Decoder_t* raw_chunk,
                 tool::Logging(my_name_.c_str(), "exists multi-level delta.\n");
                 exit(EXIT_FAILURE);
             }
-            // perform delta decoding
-            output_chunk.header.size = delta_comp_->DeltaDecode(
-                raw_chunk->base_chunk.data, raw_chunk->base_chunk.header.size,
-                raw_chunk->input_chunk.data, raw_chunk->input_chunk.header.size,
-                output_chunk.data);
+            AATEObjectView base_view;
+            AATEDeltaView delta_view;
+            if (!ParseAATEObject(raw_chunk->base_chunk.data,
+                    raw_chunk->base_chunk.header.size, base_view) ||
+                !ParseAATEDelta(raw_chunk->input_chunk.data,
+                    raw_chunk->input_chunk.header.size, delta_view)) {
+                tool::Logging(my_name_.c_str(),
+                    "invalid AATE global restore record.\n");
+                exit(EXIT_FAILURE);
+            }
+            uint8_t restored_payload[AATE_MAX_PLAIN_SIZE];
+            const uint32_t restored_payload_size = delta_comp_->DeltaDecode(
+                const_cast<uint8_t*>(base_view.payload), base_view.payload_size,
+                const_cast<uint8_t*>(delta_view.delta), delta_view.delta_size,
+                restored_payload);
+            if (!BuildAATEObject(delta_view, restored_payload,
+                restored_payload_size, output_chunk.data,
+                STORAGE_MAX_CHUNK_SIZE, output_chunk.header.size)) {
+                tool::Logging(my_name_.c_str(),
+                    "cannot rebuild AATE global object.\n");
+                exit(EXIT_FAILURE);
+            }
             
             // write data to the send buf (need perform decompression)
             output_chunk.header.type = COMP_NORMAL_CHUNK;
@@ -153,12 +171,28 @@ void DataDecoderThd::DecodeChunk(Reader2Decoder_t* raw_chunk,
                     break;
                 }
                 case UNCOMP_BASE_CHUNK: {
-                    // perform delta decoding (do not need to perform decompression)
-                    // do not let the client perform decompression
-                    output_chunk.header.size = delta_comp_->DeltaDecode(
-                        raw_chunk->base_chunk.data, raw_chunk->base_chunk.header.size,
-                        raw_chunk->input_chunk.data, raw_chunk->input_chunk.header.size,
-                        output_chunk.data);
+                    AATEObjectView base_view;
+                    AATEDeltaView delta_view;
+                    if (!ParseAATEObject(raw_chunk->base_chunk.data,
+                            raw_chunk->base_chunk.header.size, base_view) ||
+                        !ParseAATEDelta(raw_chunk->input_chunk.data,
+                            raw_chunk->input_chunk.header.size, delta_view)) {
+                        tool::Logging(my_name_.c_str(),
+                            "invalid AATE cache restore record.\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    uint8_t restored_payload[AATE_MAX_PLAIN_SIZE];
+                    const uint32_t restored_payload_size = delta_comp_->DeltaDecode(
+                        const_cast<uint8_t*>(base_view.payload), base_view.payload_size,
+                        const_cast<uint8_t*>(delta_view.delta), delta_view.delta_size,
+                        restored_payload);
+                    if (!BuildAATEObject(delta_view, restored_payload,
+                        restored_payload_size, output_chunk.data,
+                        STORAGE_MAX_CHUNK_SIZE, output_chunk.header.size)) {
+                        tool::Logging(my_name_.c_str(),
+                            "cannot rebuild AATE cache object.\n");
+                        exit(EXIT_FAILURE);
+                    }
             
                     // write data to the send buf
                     output_chunk.header.type = UNCOMP_NORMAL_CHUNK;

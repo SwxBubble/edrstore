@@ -100,7 +100,13 @@ int main(int argc, char* argv[]) {
             << "two_enc size, " << "two_enc time, " << "key gen time, "
             << "c_feature size, " << "c_feature time, "
             << "comp_pad size, " << "comp_pad time, "
-            << "cache manage size, " << "cache manage time" << endl;
+            << "cache manage size, " << "cache manage time, "
+            << "global chunks, anchor-aligned chunks, "
+            << "anchor candidates, accepted anchors, suppressed anchors, "
+            << "identical-window rejects, regions, min region size, "
+            << "avg region size, max region size, metadata bytes, "
+            << "payload bytes, anchor scan time, key derivation time, "
+            << "payload encryption time, metadata encryption time" << endl;
     } else {
         // the log file exists
         breakdown_client_file_hdl.open(breakdown_file_name, ios_base::app | ios_base::out);
@@ -346,6 +352,7 @@ int main(int argc, char* argv[]) {
                 << sender_thd->_cur_version_idx_size << endl;
             
 #ifdef EDR_BREAKDOWN
+            const AATEStats& aate_stats = key_gen_thd->GetAATEStats();
             breakdown_client_file_hdl << chunk_fp_thd->_total_chunking_data_size << ", "
                 << chunk_fp_thd->_total_chunking_time << ", "
                 << chunk_fp_thd->_total_fp_data_size << ", "
@@ -360,7 +367,25 @@ int main(int argc, char* argv[]) {
                 << select_comp_thd->_total_comp_pad_size << ", "
                 << select_comp_thd->_total_comp_pad_time << ", "
                 << select_comp_thd->_total_cache_manage_size << ", "
-                << select_comp_thd->_total_cache_manage_time << endl;
+                << select_comp_thd->_total_cache_manage_time << ", "
+                << aate_stats.global_chunk_count << ", "
+                << aate_stats.anchor_chunk_count << ", "
+                << aate_stats.total_anchor_candidates << ", "
+                << aate_stats.accepted_anchor_count << ", "
+                << aate_stats.suppressed_anchor_count << ", "
+                << aate_stats.identical_window_reject_count << ", "
+                << aate_stats.region_count << ", "
+                << aate_stats.min_region_size_observed << ", "
+                << (aate_stats.region_count == 0 ? 0.0 :
+                    static_cast<double>(aate_stats.payload_bytes) /
+                    aate_stats.region_count) << ", "
+                << aate_stats.max_region_size_observed << ", "
+                << aate_stats.metadata_bytes << ", "
+                << aate_stats.payload_bytes << ", "
+                << aate_stats.anchor_scan_time << ", "
+                << aate_stats.key_derivation_time << ", "
+                << aate_stats.payload_encrypt_time << ", "
+                << aate_stats.metadata_encrypt_time << endl;
             
             // store the breakdown stat
             ofstream out_breakdown_stat_hdl;

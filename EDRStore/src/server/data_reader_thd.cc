@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/data_reader_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new DataReaderThd object
@@ -216,13 +217,32 @@ void DataReaderThd::ProcCacheDeltaChunk(KeyForChunkHashDB_t* input_addr,
                 tmp_base_chunk.base_chunk.header.size = base_base_addr->len;
                 tmp_base_chunk.base_chunk.header.type = base_base_addr->stat;
 
-                // do delta decoding to restore the compressed base chunk 
-                raw_chunk->base_chunk.header.size = delta_comp_->DeltaDecode(
-                    tmp_base_chunk.base_chunk.data,
-                    tmp_base_chunk.base_chunk.header.size,
-                    tmp_base_chunk.input_chunk.data,
-                    tmp_base_chunk.input_chunk.header.size,
-                    raw_chunk->base_chunk.data);
+                // Restore the compressed base object by delta-decoding only
+                // its payload and then reattaching the target metadata.
+                AATEObjectView base_base_view;
+                AATEDeltaView base_delta_view;
+                if (!ParseAATEObject(tmp_base_chunk.base_chunk.data,
+                        tmp_base_chunk.base_chunk.header.size, base_base_view) ||
+                    !ParseAATEDelta(tmp_base_chunk.input_chunk.data,
+                        tmp_base_chunk.input_chunk.header.size, base_delta_view)) {
+                    tool::Logging(my_name_.c_str(),
+                        "invalid AATE compressed base delta.\n");
+                    exit(EXIT_FAILURE);
+                }
+                uint8_t restored_payload[AATE_MAX_PLAIN_SIZE];
+                const uint32_t restored_payload_size = delta_comp_->DeltaDecode(
+                    const_cast<uint8_t*>(base_base_view.payload),
+                    base_base_view.payload_size,
+                    const_cast<uint8_t*>(base_delta_view.delta),
+                    base_delta_view.delta_size, restored_payload);
+                if (!BuildAATEObject(base_delta_view, restored_payload,
+                    restored_payload_size, raw_chunk->base_chunk.data,
+                    STORAGE_MAX_CHUNK_SIZE,
+                    raw_chunk->base_chunk.header.size)) {
+                    tool::Logging(my_name_.c_str(),
+                        "cannot rebuild AATE compressed base.\n");
+                    exit(EXIT_FAILURE);
+                }
                 raw_chunk->base_chunk.header.type = COMP_BASE_CHUNK;
                 break;
             }

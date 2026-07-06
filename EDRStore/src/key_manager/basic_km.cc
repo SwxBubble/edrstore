@@ -28,7 +28,6 @@ BasicKM::BasicKM(SSLConnection* km_channel,
 
     memset(global_padding_secret_, 2, CHUNK_HASH_SIZE);
 
-    similar_policy_ = new SimilarPolicy();
 }
 
 /**
@@ -37,13 +36,15 @@ BasicKM::BasicKM(SSLConnection* km_channel,
  */
 BasicKM::~BasicKM() {
     delete crypto_util_;
-    delete similar_policy_;
     fprintf(stderr, "========BasicKM Info========\n");
     fprintf(stderr, "key gen num: %lu\n", _total_key_gen_num);
     fprintf(stderr, "similar chunk num: %lu\n", _total_similar_chunk_num);
+    fprintf(stderr, "anchor-aligned chunk num: %lu\n",
+        _total_anchor_aligned_chunk_num);
     fprintf(stderr, "total key index size (B): %lu\n",
         (_total_key_gen_num - _total_similar_chunk_num) *
-            SUPER_FEATURE_PER_CHUNK * (sizeof(uint64_t) + CHUNK_HASH_SIZE));
+            SUPER_FEATURE_PER_CHUNK *
+            (sizeof(uint64_t) + sizeof(KeyGroupIndexValue_t)));
     fprintf(stderr, "============================\n");
 }
 
@@ -117,7 +118,6 @@ void BasicKM::Run(SSL* key_client_ssl) {
             
             KeyGenReq_t* cur_key_gen_req = (KeyGenReq_t*) recv_req_buf.data_buf;
             KeyGenRet_t* cur_key_gen_ret = (KeyGenRet_t*) send_key_buf.data_buf;
-            ChunkInfo_t tmp_info;
             for (size_t i = 0; i < recv_fp_num; i++) {
                 // memcpy(tmp_padding_hash_buf + CHUNK_HASH_SIZE, cur_key_gen_req->fp,
                 //     CHUNK_HASH_SIZE);
@@ -127,45 +127,83 @@ void BasicKM::Run(SSL* key_client_ssl) {
                 // cur_key_gen_ret->seed = this->ConvertFp2Val(cur_key_gen_ret->key,
                 //     CHUNK_HASH_SIZE);
 
-                memcpy(tmp_info.features, cur_key_gen_req->features,
-                    sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK); 
-                similar_policy_->FindBaseChunk(feature_2_key_index_, &tmp_info);
-
-                switch (tmp_info.stat) {
-                    case SIMILAR_CHUNK: {
-                        // similar chunk
-                        memcpy(cur_key_gen_ret->key_seed, tmp_info.addr.base_fp,
-                            CHUNK_HASH_SIZE);
-                        _total_similar_chunk_num++;
-                        break;
+                struct Candidate {
+                    uint32_t count = 0;
+                    uint32_t first_match = 0;
+                    KeyGroupIndexValue_t value{};
+                };
+                unordered_map<string, Candidate> candidates;
+                string index_value;
+                for (uint32_t feature_idx = 0;
+                    feature_idx < SUPER_FEATURE_PER_CHUNK; ++feature_idx) {
+                    if (!feature_2_key_index_->QueryBuffer(
+                            reinterpret_cast<char*>(
+                                &cur_key_gen_req->features[feature_idx]),
+                            sizeof(uint64_t), index_value) ||
+                        index_value.size() != sizeof(KeyGroupIndexValue_t)) {
+                        continue;
                     }
-                    case NON_SIMILAR_CHUNK: {
-                        // not a similar chunk
-                        // memcpy(tmp_hash_buf + CHUNK_HASH_SIZE, cur_key_gen_req->fp,
-                        //     CHUNK_HASH_SIZE);
-                        // crypto_util_->GenerateHash(md_ctx, tmp_hash_buf, CHUNK_HASH_SIZE * 2,
-                        //     cur_key_gen_ret->key);
-
-                        
-                        // generate new key here
-                        memcpy(tmp_feature_buf + CHUNK_HASH_SIZE, &tmp_info.features[0], 
-                            sizeof(uint64_t));
-                        memcpy(tmp_feature_buf + CHUNK_HASH_SIZE + sizeof(uint64_t), 
-                            &tmp_info.features[1], sizeof(uint64_t));
-                        memcpy(tmp_feature_buf + CHUNK_HASH_SIZE + sizeof(uint64_t) * 2, 
-                            &tmp_info.features[2], sizeof(uint64_t));
-
-                        crypto_util_->GenerateHash(md_ctx, tmp_feature_buf, CHUNK_HASH_SIZE + 
-                            sizeof(uint64_t) * 3, cur_key_gen_ret->key_seed);                   
-
-                        // update the index
-                        similar_policy_->UpdateFeatureIndex(feature_2_key_index_,
-                            tmp_info.features, cur_key_gen_ret->key_seed);
-                        break;
+                    KeyGroupIndexValue_t value;
+                    memcpy(&value, index_value.data(), sizeof(value));
+                    string seed(reinterpret_cast<char*>(value.key_seed),
+                        CHUNK_HASH_SIZE);
+                    auto found = candidates.find(seed);
+                    if (found == candidates.end()) {
+                        Candidate candidate;
+                        candidate.count = 1;
+                        candidate.first_match = feature_idx;
+                        candidate.value = value;
+                        candidates.emplace(seed, candidate);
+                    } else {
+                        found->second.count++;
                     }
-                    default: {
-                        tool::Logging(my_name_.c_str(), "wrong key type.\n");
-                        exit(EXIT_FAILURE);
+                }
+
+                if (!candidates.empty()) {
+                    auto best = candidates.begin();
+                    for (auto it = candidates.begin(); it != candidates.end(); ++it) {
+                        if (it->second.count > best->second.count ||
+                            (it->second.count == best->second.count &&
+                                it->second.first_match < best->second.first_match)) {
+                            best = it;
+                        }
+                    }
+                    for (uint32_t key_idx = 0; key_idx < CHUNK_HASH_SIZE;
+                        ++key_idx) {
+                        cur_key_gen_ret->key_seed[key_idx] =
+                            best->second.value.key_seed[key_idx];
+                    }
+                    const bool shifted = ShouldUseAnchorAlignedMode(
+                        cur_key_gen_req->position_sketch,
+                        best->second.value.reference_sketch);
+                    cur_key_gen_ret->enc_mode = shifted ? 1 : 0;
+                    _total_similar_chunk_num++;
+                    if (shifted) {
+                        _total_anchor_aligned_chunk_num++;
+                    }
+                } else {
+                    memcpy(tmp_feature_buf + CHUNK_HASH_SIZE,
+                        &cur_key_gen_req->features[0], sizeof(uint64_t));
+                    memcpy(tmp_feature_buf + CHUNK_HASH_SIZE + sizeof(uint64_t),
+                        &cur_key_gen_req->features[1], sizeof(uint64_t));
+                    memcpy(tmp_feature_buf + CHUNK_HASH_SIZE + sizeof(uint64_t) * 2,
+                        &cur_key_gen_req->features[2], sizeof(uint64_t));
+                    crypto_util_->GenerateHash(md_ctx, tmp_feature_buf,
+                        CHUNK_HASH_SIZE + sizeof(uint64_t) * 3,
+                        cur_key_gen_ret->key_seed);
+                    cur_key_gen_ret->enc_mode = 0;
+
+                    KeyGroupIndexValue_t value{};
+                    memcpy(value.key_seed, cur_key_gen_ret->key_seed,
+                        CHUNK_HASH_SIZE);
+                    value.reference_sketch = cur_key_gen_req->position_sketch;
+                    for (uint32_t feature_idx = 0;
+                        feature_idx < SUPER_FEATURE_PER_CHUNK; ++feature_idx) {
+                        feature_2_key_index_->InsertBothBuffer(
+                            reinterpret_cast<char*>(
+                                &cur_key_gen_req->features[feature_idx]),
+                            sizeof(uint64_t), reinterpret_cast<char*>(&value),
+                            sizeof(value));
                     }
                 }
 

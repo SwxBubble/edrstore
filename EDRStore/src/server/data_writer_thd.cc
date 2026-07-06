@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/data_writer_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new DataWriterThd object
@@ -77,7 +78,14 @@ void DataWriterThd::Run(ClientVar* cur_client) {
                     switch (tmp_data.info.stat) {
                         case SIMILAR_CHUNK: {
                             _total_similar_chunk_num++;
-                            _total_similar_data_size += tmp_data.info.size;
+                            AATEObjectView target_view;
+                            if (!ParseAATEObject(tmp_data.data,
+                                tmp_data.info.size, target_view)) {
+                                tool::Logging(my_name_.c_str(),
+                                    "invalid AATE similar object.\n");
+                                exit(EXIT_FAILURE);
+                            }
+                            _total_similar_data_size += target_view.payload_size;
                             this->ProcSimilarChunk(&tmp_data, cur_client);
                             break;
                         }
@@ -136,7 +144,7 @@ void DataWriterThd::Run(ClientVar* cur_client) {
  */
 void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     ClientVar* cur_client) {
-    uint8_t base_chunk[ENC_MAX_CHUNK_SIZE];
+    uint8_t base_chunk[STORAGE_MAX_CHUNK_SIZE];
     uint32_t base_chunk_size = 0;
     uint8_t delta_chunk[ENC_MAX_CHUNK_SIZE];
     uint32_t delta_chunk_size = 0;
@@ -147,28 +155,56 @@ void DataWriterThd::ProcSimilarChunk(WrappedChunk_t* input_chunk,
     if(base_chunk_size == 0){
         // avoid delta, directly write
         storage_core_->WriteChunk(&input_chunk->info.addr, input_chunk->data,
-        input_chunk->info.size, cur_client);
+            input_chunk->info.size, cur_client);
+        input_chunk->info.addr.stat = COMP_BASE_CHUNK;
+        AATEObjectView target_view;
+        if (ParseAATEObject(input_chunk->data, input_chunk->info.size,
+            target_view)) {
+            _total_similar_chunk_num--;
+            _total_similar_data_size -= target_view.payload_size;
+        }
+        similar_policy_->UpdateFeatureIndex(feature_2_fp_db_,
+            input_chunk->info.features, input_chunk->info.fp);
+        return;
     }
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_stime, NULL);
 #endif
 
-    delta_chunk_size = delta_comp_->DeltaEncode(base_chunk, base_chunk_size,
-        input_chunk->data, input_chunk->info.size, delta_chunk);
+    AATEObjectView base_view;
+    AATEObjectView target_view;
+    if (!ParseAATEObject(base_chunk, base_chunk_size, base_view) ||
+        !ParseAATEObject(input_chunk->data, input_chunk->info.size, target_view)) {
+        tool::Logging(my_name_.c_str(), "cannot parse AATE global delta objects.\n");
+        exit(EXIT_FAILURE);
+    }
+    delta_chunk_size = delta_comp_->DeltaEncode(
+        const_cast<uint8_t*>(base_view.payload), base_view.payload_size,
+        const_cast<uint8_t*>(target_view.payload), target_view.payload_size,
+        delta_chunk);
 
-    storage_core_->WriteChunk(&input_chunk->info.addr, delta_chunk,
-        delta_chunk_size, cur_client);
+    uint8_t stored_record[STORAGE_MAX_CHUNK_SIZE];
+    uint32_t stored_record_size = 0;
+    if (!BuildAATEDelta(target_view, delta_chunk, delta_chunk_size,
+        stored_record, sizeof(stored_record), stored_record_size)) {
+        tool::Logging(my_name_.c_str(), "cannot build AATE global delta record.\n");
+        exit(EXIT_FAILURE);
+    }
+    storage_core_->WriteChunk(&input_chunk->info.addr, stored_record,
+        stored_record_size, cur_client);
     input_chunk->info.addr.stat = COMP_DELTA_CHUNK;
 
     // update stat
     _total_delta_size += delta_chunk_size;
+    _total_delta_record_overhead_size +=
+        stored_record_size - delta_chunk_size;
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_comp_delta_etime, NULL);
     _total_comp_delta_time += tool::GetTimeDiff(_comp_delta_stime,
         _comp_delta_etime);
-    _total_comp_delta_data_size += input_chunk->info.size;
+    _total_comp_delta_data_size += target_view.payload_size;
 #endif
 
     return ;

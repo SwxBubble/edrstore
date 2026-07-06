@@ -40,6 +40,8 @@ KeyGenThd::KeyGenThd(SSLConnection* km_channel,
     chunk_buf_.reserve(send_chunk_batch_size_);
 
     two_phase_enc_ = new TwoPhaseEnc();
+    crypto_util_ = new CryptoUtil(CIPHER_TYPE, HASH_TYPE);
+    md_ctx_ = EVP_MD_CTX_new();
 
     km_channel_ = km_channel;
     km_conn_record_ = km_conn_record;
@@ -52,6 +54,8 @@ KeyGenThd::KeyGenThd(SSLConnection* km_channel,
  * 
  */
 KeyGenThd::~KeyGenThd() {
+    EVP_MD_CTX_free(md_ctx_);
+    delete crypto_util_;
     delete two_phase_enc_;
     free(send_buf_.send_buf);
     free(recv_buf_.send_buf);
@@ -146,6 +150,8 @@ void KeyGenThd::AddChunkToBuf(EncFeatureChunk_t& input_chunk,
 
     memcpy(cur_key_req->features, input_chunk.feature_chunk.features,
         sizeof(uint64_t) * SUPER_FEATURE_PER_CHUNK);
+    cur_key_req->position_sketch =
+        input_chunk.feature_chunk.position_sketch;
     send_buf_.header->size += sizeof(KeyGenReq_t);
 
     if (chunk_buf_.size() % send_chunk_batch_size_ == 0) {
@@ -210,10 +216,24 @@ void KeyGenThd::ProcessBatch(AbsMQ<EncFeatureChunk_t>* output_MQ) {
     gettimeofday(&_key_gen_stime, NULL);
 #endif
 
-        // AATE requires a group-stable input key. Similar chunks receive the
-        // same key-server seed; mixing the first plaintext bytes here would
-        // break synchronization after a prefix insertion/deletion.
-        memcpy(chunk_buf_[i].key, cur_key_ret->key_seed, CHUNK_HASH_SIZE);
+        chunk_buf_[i].enc_mode = cur_key_ret->enc_mode;
+        if (chunk_buf_[i].enc_mode ==
+            static_cast<uint8_t>(TwoPhaseEncMode::ANCHOR_ALIGNED)) {
+            // Anchor alignment must keep a group-stable key across prefix
+            // insertions/deletions.
+            memcpy(chunk_buf_[i].key, cur_key_ret->key_seed, CHUNK_HASH_SIZE);
+        } else {
+            // GLOBAL preserves the original EDRStore grouping rule.
+            uint8_t key_material[CHUNK_HASH_SIZE * 2] = {0};
+            const uint32_t prefix_size = std::min<uint32_t>(CHUNK_HASH_SIZE,
+                chunk_buf_[i].feature_chunk.chunk.raw_chunk.size);
+            memcpy(key_material,
+                chunk_buf_[i].feature_chunk.chunk.raw_chunk.data, prefix_size);
+            memcpy(key_material + CHUNK_HASH_SIZE, cur_key_ret->key_seed,
+                CHUNK_HASH_SIZE);
+            crypto_util_->GenerateHash(md_ctx_, key_material,
+                sizeof(key_material), chunk_buf_[i].key);
+        }
 
 #ifdef EDR_BREAKDOWN
     gettimeofday(&_key_gen_etime, NULL);
@@ -226,14 +246,15 @@ void KeyGenThd::ProcessBatch(AbsMQ<EncFeatureChunk_t>* output_MQ) {
 #endif
 
         // encrypt the chunk here
-        chunk_buf_[i].enc_size = two_phase_enc_->TwoPhaseEncChunk(
+        chunk_buf_[i].enc_size = two_phase_enc_->TwoPhaseEncChunkWithMode(
             chunk_buf_[i].feature_chunk.chunk.raw_chunk.data,
             chunk_buf_[i].feature_chunk.chunk.raw_chunk.size,
             chunk_buf_[i].key,
-            chunk_buf_[i].enc_data
+            chunk_buf_[i].enc_data,
+            static_cast<TwoPhaseEncMode>(chunk_buf_[i].enc_mode)
         );
         if (chunk_buf_[i].enc_size == 0) {
-            tool::Logging(my_name_.c_str(), "AATE chunk encryption failed.\n");
+            tool::Logging(my_name_.c_str(), "GLOBAL chunk encryption failed.\n");
             exit(EXIT_FAILURE);
         }
 

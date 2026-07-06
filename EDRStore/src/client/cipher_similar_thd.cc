@@ -57,6 +57,7 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
 
         if (input_MQ->Pop(tmp_data)) {
             // extract a chunk from the MQ
+            uint32_t feature_input_size = 0;
 #ifdef EDR_BREAKDOWN
             gettimeofday(&_cipher_feature_stime, NULL);
 #endif
@@ -66,17 +67,21 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
                     // Recipe bytes are an opaque envelope prefix. Excluding
                     // them keeps resemblance features focused on the aligned
                     // region ciphertext that is useful to delta compression.
-                    uint32_t payload_offset = 0;
-                    uint32_t payload_size = 0;
-                    if (!TwoPhaseEnc::GetPayloadRange(tmp_data.enc_data,
-                        tmp_data.enc_size, payload_offset, payload_size)) {
+                    AATEObjectView object_view;
+                    if (!ParseAATEObject(tmp_data.enc_data, tmp_data.enc_size,
+                        object_view)) {
                         tool::Logging(my_name_.c_str(), "invalid AATE envelope.\n");
                         exit(EXIT_FAILURE);
                     }
                     // re-use the plaintext feature buffer to store features of ciphertext chunk
                     finesse_util_->ExtractFeature(rabin_ctx_,
-                        tmp_data.enc_data + payload_offset, payload_size,
+                        const_cast<uint8_t*>(object_view.payload),
+                        object_view.payload_size,
                         tmp_data.feature_chunk.features);
+                    AATEDomainSeparateFeatures(object_view,
+                        tmp_data.feature_chunk.features,
+                        SUPER_FEATURE_PER_CHUNK);
+                    feature_input_size = object_view.payload_size;
                     break;    
                 }
                 case RECIPE_CHUNK: {
@@ -94,7 +99,7 @@ void CipherSimilarThd::Run(AbsMQ<EncFeatureChunk_t>* input_MQ,
             _total_cipher_feature_time += tool::GetTimeDiff(
                 _cipher_feature_stime, _cipher_feature_etime);
             if (tmp_data.feature_chunk.chunk.type != RECIPE_CHUNK) {
-                _total_cipher_feature_size += tmp_data.enc_size;
+                _total_cipher_feature_size += feature_input_size;
             }
 #endif
 

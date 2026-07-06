@@ -77,6 +77,7 @@ class DataWriterThd {
         uint64_t _total_similar_chunk_num = 0;
         uint64_t _total_similar_data_size = 0;
         uint64_t _total_delta_size = 0;
+        uint64_t _total_delta_record_overhead_size = 0;
 
 #ifdef EDR_BREAKDOWN
         struct timeval _comp_delta_stime;

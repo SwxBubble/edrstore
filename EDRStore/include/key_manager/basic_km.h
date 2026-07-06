@@ -17,8 +17,8 @@
 #include "../data_structure.h"
 #include "../network/ssl_conn.h"
 #include "../crypto/crypto_util.h"
+#include "../crypto/aate_mode_selector.h"
 #include "../database/db_factory.h"
-#include "../reduction/similar_policy.h"
 
 extern Configure config;
 
@@ -38,8 +38,6 @@ class BasicKM {
 
         AbsDatabase* feature_2_key_index_;
 
-        SimilarPolicy* similar_policy_;
-
         /**
          * @brief convert the fp to value
          * 
@@ -53,6 +51,7 @@ class BasicKM {
         // for statistics
         uint64_t _total_key_gen_num = 0;
         uint64_t _total_similar_chunk_num = 0;
+        uint64_t _total_anchor_aligned_chunk_num = 0;
 
         /**
          * @brief Construct a new Basic KM object

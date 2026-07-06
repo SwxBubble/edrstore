@@ -27,6 +27,9 @@ static const uint32_t SUPER_FEATURE_PER_CHUNK = 3; // 3 super-feature per chunk
 static const uint32_t FEATURE_PER_SUPER_FEATURE = 4; // 4 features per super-feature
 static const uint32_t FEATURE_PER_CHUNK = SUPER_FEATURE_PER_CHUNK * 
     FEATURE_PER_SUPER_FEATURE; // 12 total features per chunk
+// Content-defined landmarks retained with their plaintext positions.  They
+// let the key manager distinguish insertion/deletion shifts from replacements.
+static const uint32_t AATE_POSITION_SKETCH_SIZE = 8;
 
 // for rabin fingerprint
 static const uint64_t FINGERPRINT_PT = 0xbfe6b8a5bf378d83LL;
@@ -94,8 +97,15 @@ static const size_t AATE_MAX_PLAIN_SIZE = MAX_CHUNK_SIZE + sizeof(uint32_t);
 // AATE payload is length-preserving. Its authenticated boundary recipe uses
 // at most one bit per plaintext byte, plus a small fixed envelope header.
 static const size_t AATE_MAX_RECIPE_SIZE = 1 + (AATE_MAX_PLAIN_SIZE + 7) / 8;
+// GLOBAL objects contain only a magic/version prefix followed by a
+// length-preserving payload.  The object length supplies the payload length.
+static const size_t AATE_GLOBAL_HEADER_SIZE = 5;
+static const size_t AATE_GLOBAL_DELTA_HEADER_SIZE = 5;
 static const size_t AATE_ENVELOPE_HEADER_SIZE = 41;
 static const size_t ENC_MAX_CHUNK_SIZE = AATE_MAX_PLAIN_SIZE + AATE_MAX_RECIPE_SIZE +
     AATE_ENVELOPE_HEADER_SIZE;
+static const size_t AATE_DELTA_HEADER_SIZE = 17;
+static const size_t STORAGE_MAX_CHUNK_SIZE = ENC_MAX_CHUNK_SIZE +
+    AATE_ENVELOPE_HEADER_SIZE + AATE_MAX_RECIPE_SIZE + AATE_DELTA_HEADER_SIZE;
 
 #endif

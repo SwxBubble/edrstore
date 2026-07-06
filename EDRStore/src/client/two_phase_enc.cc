@@ -6,6 +6,7 @@
 #include "../../include/client/two_phase_enc.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <limits>
 
@@ -16,8 +17,16 @@
 namespace {
 
 constexpr uint8_t kMagic[4] = {'A', 'A', 'T', 'E'};
+constexpr uint8_t kGlobalMagic[4] = {'A', 'A', 'T', 'G'};
 constexpr uint8_t kSparseRecipe = 0;
 constexpr uint8_t kBitmapRecipe = 1;
+
+using Clock = std::chrono::steady_clock;
+
+double ElapsedSeconds(const Clock::time_point& begin,
+    const Clock::time_point& end) {
+    return std::chrono::duration<double>(end - begin).count();
+}
 
 void PutU16(uint8_t* out, uint16_t value) {
     out[0] = static_cast<uint8_t>(value >> 8);
@@ -40,13 +49,6 @@ uint32_t GetU32(const uint8_t* in) {
         (static_cast<uint32_t>(in[1]) << 16) |
         (static_cast<uint32_t>(in[2]) << 8) |
         static_cast<uint32_t>(in[3]);
-}
-
-void PutU64(uint8_t* out, uint64_t value) {
-    for (int i = 7; i >= 0; --i) {
-        out[i] = static_cast<uint8_t>(value);
-        value >>= 8;
-    }
 }
 
 bool HmacSha256(const uint8_t* key, size_t key_size, const uint8_t* data,
@@ -77,25 +79,26 @@ bool CryptBlock(EVP_CIPHER_CTX* ctx, const uint8_t in[16], uint8_t out[16],
     return ok == 1 && out_size == 16;
 }
 
-bool MakeCounterInput(const uint8_t region_salt[32], const char* label,
-    uint64_t counter, uint8_t out[16]) {
-    const size_t label_size = std::strlen(label);
-    std::vector<uint8_t> input(label_size + 8);
-    std::memcpy(input.data(), label, label_size);
-    PutU64(input.data() + label_size, counter);
-    uint8_t digest[32];
-    if (!HmacSha256(region_salt, 32, input.data(), input.size(), digest)) {
+bool CryptBlocks(EVP_CIPHER_CTX* ctx, const uint8_t* in, uint32_t size,
+    uint8_t* out, bool encrypt) {
+    if (size == 0 || size % 16 != 0) {
         return false;
     }
-    std::memcpy(out, digest, 16);
-    OPENSSL_cleanse(digest, sizeof(digest));
-    return true;
+    int out_size = 0;
+    const int ok = encrypt
+        ? EVP_EncryptUpdate(ctx, out, &out_size, in, size)
+        : EVP_DecryptUpdate(ctx, out, &out_size, in, size);
+    return ok == 1 && out_size == static_cast<int>(size);
 }
 
 } // namespace
 
 TwoPhaseEnc::TwoPhaseEnc() {
     rabin_util_ = new RabinFPUtil(AATE_WINDOW_SIZE);
+    const size_t scratch_size = AATE_MAX_PLAIN_SIZE + CRYPTO_BLOCK_SIZE;
+    counter_buf_.resize(scratch_size);
+    mask_buf_.resize(scratch_size);
+    transform_buf_.resize(scratch_size);
 }
 
 TwoPhaseEnc::~TwoPhaseEnc() {
@@ -104,9 +107,17 @@ TwoPhaseEnc::~TwoPhaseEnc() {
 
 bool TwoPhaseEnc::GetPayloadRange(const uint8_t* envelope, uint32_t envelope_size,
     uint32_t& payload_offset, uint32_t& payload_size) {
-    if (envelope == nullptr || envelope_size < AATE_HEADER_SIZE ||
-        std::memcmp(envelope, kMagic, sizeof(kMagic)) != 0 ||
+    if (envelope == nullptr || envelope_size <= AATE_GLOBAL_HEADER_SIZE ||
         envelope[4] != AATE_VERSION) {
+        return false;
+    }
+    if (std::memcmp(envelope, kGlobalMagic, sizeof(kGlobalMagic)) == 0) {
+        payload_offset = AATE_GLOBAL_HEADER_SIZE;
+        payload_size = envelope_size - payload_offset;
+        return payload_size <= AATE_MAX_PLAIN_SIZE;
+    }
+    if (envelope_size < AATE_HEADER_SIZE ||
+        std::memcmp(envelope, kMagic, sizeof(kMagic)) != 0) {
         return false;
     }
     payload_size = GetU32(envelope + 5);
@@ -150,7 +161,7 @@ bool TwoPhaseEnc::DeriveSubKeys(const uint8_t* similarity_seed,
 }
 
 bool TwoPhaseEnc::FindBoundaries(const uint8_t* data, uint32_t size,
-    std::vector<uint16_t>& boundaries) const {
+    std::vector<uint16_t>& boundaries) {
     boundaries.clear();
     if (size < AATE_WINDOW_SIZE) {
         return true;
@@ -162,8 +173,24 @@ bool TwoPhaseEnc::FindBoundaries(const uint8_t* data, uint32_t size,
         const uint64_t fp = rabin_util_->SlideOneByte(ctx, data[i]);
         const uint32_t boundary = i + 1;
         if (boundary >= AATE_WINDOW_SIZE && boundary < size &&
-            (fp & AATE_ANCHOR_MASK) == 0) {
+            (fp & AATE_ANCHOR_MASK) == AATE_ANCHOR_PATTERN) {
+            stats_.total_anchor_candidates++;
+            const uint8_t first = data[boundary - AATE_WINDOW_SIZE];
+            bool identical_window = true;
+            for (uint32_t j = boundary - AATE_WINDOW_SIZE + 1;
+                j < boundary; ++j) {
+                if (data[j] != first) {
+                    identical_window = false;
+                    break;
+                }
+            }
+            if (identical_window) {
+                stats_.identical_window_reject_count++;
+                stats_.suppressed_anchor_count++;
+                continue;
+            }
             boundaries.push_back(static_cast<uint16_t>(boundary));
+            stats_.accepted_anchor_count++;
         }
     }
     rabin_util_->FreeCtx(ctx);
@@ -172,7 +199,8 @@ bool TwoPhaseEnc::FindBoundaries(const uint8_t* data, uint32_t size,
 
 bool TwoPhaseEnc::SerializeRecipe(uint32_t size,
     const std::vector<uint16_t>& boundaries, std::vector<uint8_t>& recipe) const {
-    if (boundaries.size() > std::numeric_limits<uint16_t>::max()) {
+    if (boundaries.size() > std::numeric_limits<uint16_t>::max() ||
+        boundaries.size() >= size) {
         return false;
     }
     const size_t sparse_size = 3 + boundaries.size() * sizeof(uint16_t);
@@ -245,14 +273,17 @@ bool TwoPhaseEnc::DeserializeRecipe(uint32_t size, const uint8_t* recipe,
 
 bool TwoPhaseEnc::CryptPayload(const uint8_t* input, uint32_t size,
     const std::vector<uint16_t>& boundaries, const SubKeys& keys, bool encrypt,
-    uint8_t* output) const {
+    uint8_t* output) {
     EVP_CIPHER_CTX* mask_ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX* perm_ctx = EVP_CIPHER_CTX_new();
-    if (mask_ctx == nullptr || perm_ctx == nullptr ||
+    EVP_CIPHER_CTX* tail_ctx = EVP_CIPHER_CTX_new();
+    if (mask_ctx == nullptr || perm_ctx == nullptr || tail_ctx == nullptr ||
         !InitEcb(mask_ctx, keys.mask.data(), true) ||
-        !InitEcb(perm_ctx, keys.perm.data(), encrypt)) {
+        !InitEcb(perm_ctx, keys.perm.data(), encrypt) ||
+        !InitEcb(tail_ctx, keys.tail.data(), true)) {
         EVP_CIPHER_CTX_free(mask_ctx);
         EVP_CIPHER_CTX_free(perm_ctx);
+        EVP_CIPHER_CTX_free(tail_ctx);
         return false;
     }
 
@@ -263,6 +294,7 @@ bool TwoPhaseEnc::CryptPayload(const uint8_t* input, uint32_t size,
         anchor_tag)) {
         EVP_CIPHER_CTX_free(mask_ctx);
         EVP_CIPHER_CTX_free(perm_ctx);
+        EVP_CIPHER_CTX_free(tail_ctx);
         return false;
     }
 
@@ -284,26 +316,28 @@ bool TwoPhaseEnc::CryptPayload(const uint8_t* input, uint32_t size,
 
         const uint32_t region_size = end - start;
         const uint32_t full_blocks = region_size / 16;
-        for (uint32_t j = 0; j < full_blocks && ok; ++j) {
-            uint8_t counter_input[16];
-            uint8_t mask[16];
-            uint8_t intermediate[16];
-            if (!MakeCounterInput(region_salt, "mask-counter", j, counter_input) ||
-                !CryptBlock(mask_ctx, counter_input, mask, true)) {
-                ok = false;
-                break;
-            }
+        const uint32_t full_size = full_blocks * 16;
+        for (uint32_t j = 0; j < full_blocks; ++j) {
+            uint8_t* counter_block = counter_buf_.data() + j * 16;
+            std::memcpy(counter_block, region_salt, 12);
+            PutU32(counter_block + 12, j);
+        }
+        if (full_size != 0) {
+            ok = CryptBlocks(mask_ctx, counter_buf_.data(), full_size,
+                mask_buf_.data(), true);
             if (encrypt) {
-                for (uint32_t k = 0; k < 16; ++k) {
-                    intermediate[k] = input[start + j * 16 + k] ^ mask[k];
+                for (uint32_t k = 0; k < full_size && ok; ++k) {
+                    transform_buf_[k] = input[start + k] ^ mask_buf_[k];
                 }
-                ok = CryptBlock(perm_ctx, intermediate,
-                    output + start + j * 16, true);
+                if (ok) {
+                    ok = CryptBlocks(perm_ctx, transform_buf_.data(), full_size,
+                        output + start, true);
+                }
             } else {
-                ok = CryptBlock(perm_ctx, input + start + j * 16,
-                    intermediate, false);
-                for (uint32_t k = 0; k < 16 && ok; ++k) {
-                    output[start + j * 16 + k] = intermediate[k] ^ mask[k];
+                ok = ok && CryptBlocks(perm_ctx, input + start, full_size,
+                    transform_buf_.data(), false);
+                for (uint32_t k = 0; k < full_size && ok; ++k) {
+                    output[start + k] = transform_buf_[k] ^ mask_buf_[k];
                 }
             }
         }
@@ -313,19 +347,16 @@ bool TwoPhaseEnc::CryptPayload(const uint8_t* input, uint32_t size,
             const uint32_t j = full_blocks;
             uint8_t counter_input[16];
             uint8_t tail_mask[16];
-            if (!MakeCounterInput(region_salt, "tail-mask", j, counter_input) ||
-                !CryptBlock(mask_ctx, counter_input, tail_mask, true)) {
+            std::memcpy(counter_input, region_salt, 12);
+            PutU32(counter_input + 12, j);
+            if (!CryptBlock(mask_ctx, counter_input, tail_mask, true)) {
                 ok = false;
             } else {
-                static constexpr char kTailLabel[] = "tail-perm";
-                uint8_t tail_input[32 + sizeof(kTailLabel) - 1 + 8];
-                std::memcpy(tail_input, region_salt, 32);
-                std::memcpy(tail_input + 32, kTailLabel,
-                    sizeof(kTailLabel) - 1);
-                PutU64(tail_input + 32 + sizeof(kTailLabel) - 1, j);
-                uint8_t tail_perm[32];
-                ok = HmacSha256(keys.tail.data(), keys.tail.size(), tail_input,
-                    sizeof(tail_input), tail_perm);
+                uint8_t tail_domain_input[16];
+                uint8_t tail_perm[16];
+                std::memcpy(tail_domain_input, counter_input, 16);
+                tail_domain_input[0] ^= 0x80;
+                ok = CryptBlock(tail_ctx, tail_domain_input, tail_perm, true);
                 const uint32_t tail_offset = start + full_blocks * 16;
                 for (uint32_t k = 0; k < tail_size && ok; ++k) {
                     output[tail_offset + k] = input[tail_offset + k] ^
@@ -351,6 +382,7 @@ bool TwoPhaseEnc::CryptPayload(const uint8_t* input, uint32_t size,
     OPENSSL_cleanse(anchor_tag, sizeof(anchor_tag));
     EVP_CIPHER_CTX_free(mask_ctx);
     EVP_CIPHER_CTX_free(perm_ctx);
+    EVP_CIPHER_CTX_free(tail_ctx);
     return ok;
 }
 
@@ -412,7 +444,48 @@ bool TwoPhaseEnc::DecryptRecipe(const uint8_t* cipher, uint32_t cipher_size,
     return ok;
 }
 
-uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size,
+uint32_t TwoPhaseEnc::EncryptGlobal(uint8_t* plain_chunk, uint32_t size,
+    uint8_t* similarity_seed, uint8_t* enc_chunk) {
+    if (plain_chunk == nullptr || similarity_seed == nullptr || enc_chunk == nullptr ||
+        size == 0 || size > AATE_MAX_PLAIN_SIZE ||
+        AATE_GLOBAL_HEADER_SIZE + size > ENC_MAX_CHUNK_SIZE) {
+        return 0;
+    }
+
+    SubKeys keys;
+    const auto key_begin = Clock::now();
+    const bool keys_ok = DeriveSubKeys(similarity_seed, keys);
+    stats_.key_derivation_time += ElapsedSeconds(key_begin, Clock::now());
+    if (!keys_ok) {
+        return 0;
+    }
+
+    std::memcpy(enc_chunk, kGlobalMagic, sizeof(kGlobalMagic));
+    enc_chunk[4] = AATE_VERSION;
+    const std::vector<uint16_t> no_boundaries;
+    const auto payload_begin = Clock::now();
+    const bool payload_ok = CryptPayload(plain_chunk, size, no_boundaries,
+        keys, true, enc_chunk + AATE_GLOBAL_HEADER_SIZE);
+    stats_.payload_encrypt_time += ElapsedSeconds(payload_begin, Clock::now());
+    if (!payload_ok) {
+        return 0;
+    }
+
+    stats_.chunk_count++;
+    stats_.global_chunk_count++;
+    stats_.region_count++;
+    stats_.metadata_bytes += AATE_GLOBAL_HEADER_SIZE;
+    stats_.payload_bytes += size;
+    if (stats_.min_region_size_observed == 0 ||
+        size < stats_.min_region_size_observed) {
+        stats_.min_region_size_observed = size;
+    }
+    stats_.max_region_size_observed = std::max<uint64_t>(
+        stats_.max_region_size_observed, size);
+    return AATE_GLOBAL_HEADER_SIZE + size;
+}
+
+uint32_t TwoPhaseEnc::EncryptAnchorAligned(uint8_t* plain_chunk, uint32_t size,
     uint8_t* similarity_seed, uint8_t* enc_chunk) {
     if (plain_chunk == nullptr || similarity_seed == nullptr || enc_chunk == nullptr ||
         size == 0 || size > AATE_MAX_PLAIN_SIZE) {
@@ -421,9 +494,14 @@ uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size,
     SubKeys keys;
     std::vector<uint16_t> boundaries;
     std::vector<uint8_t> recipe;
-    if (!DeriveSubKeys(similarity_seed, keys) ||
-        !FindBoundaries(plain_chunk, size, boundaries) ||
-        !SerializeRecipe(size, boundaries, recipe)) {
+    const auto key_begin = Clock::now();
+    const bool keys_ok = DeriveSubKeys(similarity_seed, keys);
+    stats_.key_derivation_time += ElapsedSeconds(key_begin, Clock::now());
+    const auto anchor_begin = Clock::now();
+    const bool boundaries_ok = keys_ok &&
+        FindBoundaries(plain_chunk, size, boundaries);
+    stats_.anchor_scan_time += ElapsedSeconds(anchor_begin, Clock::now());
+    if (!boundaries_ok || !SerializeRecipe(size, boundaries, recipe)) {
         return 0;
     }
     const uint32_t total_size = AATE_HEADER_SIZE + recipe.size() + size;
@@ -439,18 +517,67 @@ uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size,
     uint8_t* tag = enc_chunk + 25;
     uint8_t* recipe_cipher = enc_chunk + AATE_HEADER_SIZE;
     uint8_t* payload = recipe_cipher + recipe.size();
-    if (!EncryptRecipe(recipe.data(), recipe.size(), size, keys, enc_chunk, 13,
-        nonce, recipe_cipher, tag) ||
-        !CryptPayload(plain_chunk, size, boundaries, keys, true, payload)) {
+    const auto metadata_begin = Clock::now();
+    const bool metadata_ok = EncryptRecipe(recipe.data(), recipe.size(), size,
+        keys, enc_chunk, 13, nonce, recipe_cipher, tag);
+    stats_.metadata_encrypt_time += ElapsedSeconds(metadata_begin, Clock::now());
+    const auto payload_begin = Clock::now();
+    const bool payload_ok = metadata_ok && CryptPayload(plain_chunk, size,
+        boundaries, keys, true, payload);
+    stats_.payload_encrypt_time += ElapsedSeconds(payload_begin, Clock::now());
+    if (!payload_ok) {
         return 0;
     }
+
+    stats_.chunk_count++;
+    stats_.anchor_chunk_count++;
+    stats_.region_count += boundaries.size() + 1;
+    stats_.metadata_bytes += AATE_HEADER_SIZE + recipe.size();
+    stats_.payload_bytes += size;
+    uint32_t region_start = 0;
+    for (uint32_t region_end : boundaries) {
+        const uint32_t region_size = region_end - region_start;
+        if (stats_.min_region_size_observed == 0 ||
+            region_size < stats_.min_region_size_observed) {
+            stats_.min_region_size_observed = region_size;
+        }
+        stats_.max_region_size_observed = std::max<uint64_t>(
+            stats_.max_region_size_observed, region_size);
+        region_start = region_end;
+    }
+    const uint32_t final_region_size = size - region_start;
+    if (stats_.min_region_size_observed == 0 ||
+        final_region_size < stats_.min_region_size_observed) {
+        stats_.min_region_size_observed = final_region_size;
+    }
+    stats_.max_region_size_observed = std::max<uint64_t>(
+        stats_.max_region_size_observed, final_region_size);
     return total_size;
+}
+
+uint32_t TwoPhaseEnc::TwoPhaseEncChunk(uint8_t* plain_chunk, uint32_t size,
+    uint8_t* similarity_seed, uint8_t* enc_chunk) {
+    return TwoPhaseEncChunkWithMode(plain_chunk, size, similarity_seed,
+        enc_chunk, TwoPhaseEncMode::GLOBAL);
+}
+
+uint32_t TwoPhaseEnc::TwoPhaseEncChunkWithMode(uint8_t* plain_chunk,
+    uint32_t size, uint8_t* similarity_seed, uint8_t* enc_chunk,
+    TwoPhaseEncMode mode) {
+    if (mode == TwoPhaseEncMode::GLOBAL) {
+        return EncryptGlobal(plain_chunk, size, similarity_seed, enc_chunk);
+    }
+    if (mode == TwoPhaseEncMode::ANCHOR_ALIGNED) {
+        return EncryptAnchorAligned(plain_chunk, size, similarity_seed,
+            enc_chunk);
+    }
+    return 0;
 }
 
 uint32_t TwoPhaseEnc::TwoPhaseDecChunk(uint8_t* enc_chunk, uint32_t size,
     uint8_t* similarity_seed, uint8_t* plain_chunk) {
     if (enc_chunk == nullptr || similarity_seed == nullptr || plain_chunk == nullptr ||
-        size < AATE_HEADER_SIZE || std::memcmp(enc_chunk, kMagic, sizeof(kMagic)) != 0 ||
+        size <= AATE_GLOBAL_HEADER_SIZE ||
         enc_chunk[4] != AATE_VERSION) {
         return 0;
     }
@@ -459,12 +586,26 @@ uint32_t TwoPhaseEnc::TwoPhaseDecChunk(uint8_t* enc_chunk, uint32_t size,
     if (!GetPayloadRange(enc_chunk, size, payload_offset, original_size)) {
         return 0;
     }
-    const uint32_t recipe_size = GetU32(enc_chunk + 9);
 
     SubKeys keys;
     if (!DeriveSubKeys(similarity_seed, keys)) {
         return 0;
     }
+    if (std::memcmp(enc_chunk, kGlobalMagic, sizeof(kGlobalMagic)) == 0) {
+        const std::vector<uint16_t> no_boundaries;
+        if (!CryptPayload(enc_chunk + payload_offset, original_size,
+            no_boundaries, keys, false, plain_chunk)) {
+            OPENSSL_cleanse(plain_chunk, original_size);
+            return 0;
+        }
+        return original_size;
+    }
+    if (size < AATE_HEADER_SIZE ||
+        std::memcmp(enc_chunk, kMagic, sizeof(kMagic)) != 0) {
+        return 0;
+    }
+
+    const uint32_t recipe_size = GetU32(enc_chunk + 9);
     const uint8_t* nonce = enc_chunk + 13;
     const uint8_t* tag = enc_chunk + 25;
     const uint8_t* recipe_cipher = enc_chunk + AATE_HEADER_SIZE;

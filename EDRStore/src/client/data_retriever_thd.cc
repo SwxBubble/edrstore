@@ -10,6 +10,7 @@
  */
 
 #include "../../include/client/data_retriever_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new DataRetrieverThd object
@@ -303,12 +304,29 @@ void DataRetrieverThd::FullEDR(AbsMQ<Retriever2Writer_t>* output_MQ) {
                 this->ProcRestoreBaseChunk(cur_data, cur_header->size,
                     &tmp_base_chunk, tmp_key_recipe);
 
-                tmp_enc_restore_chunk.header.size = delta_comp_->DeltaDecode(
-                    tmp_base_chunk.data,
-                    tmp_base_chunk.header.size,
-                    tmp_input_chunk.data,
-                    tmp_input_chunk.header.size,
-                    tmp_enc_restore_chunk.data);
+                AATEObjectView base_view;
+                AATEDeltaView delta_view;
+                if (!ParseAATEObject(tmp_base_chunk.data,
+                        tmp_base_chunk.header.size, base_view) ||
+                    !ParseAATEDelta(tmp_input_chunk.data,
+                        tmp_input_chunk.header.size, delta_view)) {
+                    tool::Logging(my_name_.c_str(),
+                        "invalid AATE client cache restore record.\n");
+                    exit(EXIT_FAILURE);
+                }
+                uint8_t restored_payload[AATE_MAX_PLAIN_SIZE];
+                const uint32_t restored_payload_size = delta_comp_->DeltaDecode(
+                    const_cast<uint8_t*>(base_view.payload), base_view.payload_size,
+                    const_cast<uint8_t*>(delta_view.delta), delta_view.delta_size,
+                    restored_payload);
+                if (!BuildAATEObject(delta_view, restored_payload,
+                    restored_payload_size, tmp_enc_restore_chunk.data,
+                    STORAGE_MAX_CHUNK_SIZE,
+                    tmp_enc_restore_chunk.header.size)) {
+                    tool::Logging(my_name_.c_str(),
+                        "cannot rebuild AATE client cache object.\n");
+                    exit(EXIT_FAILURE);
+                }
                 
                 this->ProcUncompChunk(tmp_enc_restore_chunk.data,
                     tmp_enc_restore_chunk.header.size,
@@ -501,8 +519,9 @@ void DataRetrieverThd::ProcRestoreBaseChunk(uint8_t* input_chunk,
         w_padding_size, base_chunk);
 
     // re-encrypt the base chunk
-    restore_chunk->header.size = two_phase_enc_->TwoPhaseEncChunk(
-        base_chunk, wo_padding_size, key_recipe->key, restore_chunk->data);
+    restore_chunk->header.size = two_phase_enc_->TwoPhaseEncChunkWithMode(
+        base_chunk, wo_padding_size, key_recipe->key, restore_chunk->data,
+        static_cast<TwoPhaseEncMode>(key_recipe->enc_mode));
     if (restore_chunk->header.size == 0) {
         tool::Logging(my_name_.c_str(), "AATE base re-encryption failed.\n");
         exit(EXIT_FAILURE);

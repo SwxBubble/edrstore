@@ -16,6 +16,7 @@
 #include "../configure.h"
 #include "rabin_poly.h"
 #include "xxhash64.h"
+#include "../data_structure.h"
 
 using namespace std;
 
@@ -59,6 +60,10 @@ class FinesseUtil {
          */
         void ExtractFeature(RabinCtx_t& ctx, uint8_t* data, uint32_t size,
             uint64_t* features);
+
+        /** Extract stable content landmarks and their byte offsets. */
+        void ExtractPositionSketch(RabinCtx_t& ctx, uint8_t* data,
+            uint32_t size, PositionSketch_t& sketch);
 };
 
 #endif

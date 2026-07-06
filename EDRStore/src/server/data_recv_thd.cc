@@ -10,6 +10,7 @@
  */
 
 #include "../../include/server/data_recv_thd.h"
+#include "../../include/crypto/aate_object.h"
 
 /**
  * @brief Construct a new DataRecvThd object
@@ -316,16 +317,27 @@ void DataRecvThd::ProcessChunks(ClientVar* cur_client) {
                     gettimeofday(&_cipher_feature_stime, NULL);
 #endif
 
-                    // compute the feature here
+                    // Compute ciphertext features from payload only so this
+                    // path matches the client and DualDedupThd.
+                    AATEObjectView object_view;
+                    if (!ParseAATEObject(tmp_chunk.data,
+                        tmp_chunk.info.size, object_view)) {
+                        tool::Logging(my_name_.c_str(),
+                            "invalid AATE object in receiver.\n");
+                        exit(EXIT_FAILURE);
+                    }
                     finesse_util_->ExtractFeature(cur_client->_rabin_ctx,
-                        tmp_chunk.data, tmp_chunk.info.size,
+                        const_cast<uint8_t*>(object_view.payload),
+                        object_view.payload_size,
                         tmp_chunk.info.features);
+                    AATEDomainSeparateFeatures(object_view,
+                        tmp_chunk.info.features, SUPER_FEATURE_PER_CHUNK);
 
 #ifdef EDR_BREAKDOWN
                     gettimeofday(&_cipher_feature_etime, NULL);
                     _total_cipher_feature_time += tool::GetTimeDiff(
                         _cipher_feature_stime, _cipher_feature_etime);
-                    _total_cipher_feature_data_size += tmp_chunk.info.size;
+                    _total_cipher_feature_data_size += object_view.payload_size;
 #endif
                 
                     output_MQ->Push(tmp_chunk);

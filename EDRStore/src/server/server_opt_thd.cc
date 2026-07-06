@@ -380,6 +380,23 @@ void ServerOptThd::LoadStat() {
             prev_stat_file_hdl.read((char*)&storage_core_->_write_data_size,
                 sizeof(uint64_t));
 
+            // AATE payload-only statistics were appended to the original
+            // format.  Missing fields are valid for a pre-AATE stat file.
+            prev_stat_file_hdl.read(
+                (char*)&cache_comp_thd_->_total_delta_record_overhead_size,
+                sizeof(uint64_t));
+            if (!prev_stat_file_hdl) {
+                cache_comp_thd_->_total_delta_record_overhead_size = 0;
+                prev_stat_file_hdl.clear();
+            }
+            prev_stat_file_hdl.read(
+                (char*)&data_writer_thd_->_total_delta_record_overhead_size,
+                sizeof(uint64_t));
+            if (!prev_stat_file_hdl) {
+                data_writer_thd_->_total_delta_record_overhead_size = 0;
+                prev_stat_file_hdl.clear();
+            }
+
             prev_stat_file_hdl.close();
         }
     }
@@ -439,6 +456,12 @@ void ServerOptThd::StoreStat() {
             sizeof(uint64_t));
         prev_stat_file_hdl.write((char*)&storage_core_->_write_data_size,
             sizeof(uint64_t));
+        prev_stat_file_hdl.write(
+            (char*)&cache_comp_thd_->_total_delta_record_overhead_size,
+            sizeof(uint64_t));
+        prev_stat_file_hdl.write(
+            (char*)&data_writer_thd_->_total_delta_record_overhead_size,
+            sizeof(uint64_t));
         
         prev_stat_file_hdl.close();
     }
@@ -462,11 +485,23 @@ void ServerOptThd::PrintClientLog(uint64_t total_cache_size) {
         if (is_first_server_log) {
             server_log_hdl << "logical size, " << "logical chunk num, "
                 << "unique size, " <<  "unique chunk num, "
-                << "similar size (l), " << "similar chunk num (l), "
-                << "delta size (l), " << "similar size (g), "
-                << "similar chunk num (g), " << "delta size (g), "
+                << "similar payload size (l), " << "similar chunk num (l), "
+                << "payload delta size (l), " << "delta record overhead (l), "
+                << "stored delta object size (l), "
+                << "payload delta ratio (l), " << "total delta ratio (l), "
+                << "similar payload size (g), "
+                << "similar chunk num (g), " << "payload delta size (g), "
+                << "delta record overhead (g), "
+                << "stored delta object size (g), "
+                << "payload delta ratio (g), " << "total delta ratio (g), "
                 << "storage size, cache size" << endl;
         }
+        const uint64_t local_stored_delta =
+            cache_comp_thd_->_total_delta_size +
+            cache_comp_thd_->_total_delta_record_overhead_size;
+        const uint64_t global_stored_delta =
+            data_writer_thd_->_total_delta_size +
+            data_writer_thd_->_total_delta_record_overhead_size;
         server_log_hdl << data_recv_thd_->_total_logical_data_size << ", " 
             << data_recv_thd_->_total_logical_chunk_num << ", "
             << dual_dedup_thd_->_total_unique_data_size << ", " 
@@ -474,9 +509,25 @@ void ServerOptThd::PrintClientLog(uint64_t total_cache_size) {
             << cache_comp_thd_->_total_similar_data_size << ", " 
             << cache_comp_thd_->_total_similar_chunk_num << ", " 
             << cache_comp_thd_->_total_delta_size << ", " 
+            << cache_comp_thd_->_total_delta_record_overhead_size << ", "
+            << local_stored_delta << ", "
+            << (cache_comp_thd_->_total_similar_data_size == 0 ? 0.0 :
+                static_cast<double>(cache_comp_thd_->_total_delta_size) /
+                cache_comp_thd_->_total_similar_data_size) << ", "
+            << (cache_comp_thd_->_total_similar_data_size == 0 ? 0.0 :
+                static_cast<double>(local_stored_delta) /
+                cache_comp_thd_->_total_similar_data_size) << ", "
             << data_writer_thd_->_total_similar_data_size << ", " 
             << data_writer_thd_->_total_similar_chunk_num << ", " 
             << data_writer_thd_->_total_delta_size << ", " 
+            << data_writer_thd_->_total_delta_record_overhead_size << ", "
+            << global_stored_delta << ", "
+            << (data_writer_thd_->_total_similar_data_size == 0 ? 0.0 :
+                static_cast<double>(data_writer_thd_->_total_delta_size) /
+                data_writer_thd_->_total_similar_data_size) << ", "
+            << (data_writer_thd_->_total_similar_data_size == 0 ? 0.0 :
+                static_cast<double>(global_stored_delta) /
+                data_writer_thd_->_total_similar_data_size) << ", "
             << storage_core_->_write_data_size << ", " 
             << total_cache_size << endl;
         server_log_hdl.close();
